@@ -48,6 +48,10 @@ class DoubaoASRClient {
     private var pendingAudioBuffer: [Data] = []
     private let bufferLock = NSLock()
 
+    /// Whether the server has sent anything on the current connection. An expired
+    /// cookie shows up as a clean close before the first message.
+    private var receivedAnyMessage = false
+
     // Callbacks (may be called from URLSession's background thread)
     var onOpen: (() -> Void)?
     var onResult: ((_ text: String) -> Void)?
@@ -92,9 +96,10 @@ class DoubaoASRClient {
 
         let task = URLSession.shared.webSocketTask(with: request)
         self.webSocketTask = task
+        receivedAnyMessage = false
         task.resume()
 
-        receiveMessage()
+        receiveMessage(on: task)
 
         // Verify connection is alive
         task.sendPing { [weak self] error in
@@ -194,11 +199,12 @@ class DoubaoASRClient {
 
     // MARK: - Receive Loop
 
-    private func receiveMessage() {
-        webSocketTask?.receive { [weak self] result in
+    private func receiveMessage(on task: URLSessionWebSocketTask) {
+        task.receive { [weak self] result in
             guard let self = self else { return }
             switch result {
             case .success(let message):
+                self.receivedAnyMessage = true
                 switch message {
                 case .string(let text):
                     self.handleMessage(text)
@@ -209,9 +215,22 @@ class DoubaoASRClient {
                 @unknown default:
                     break
                 }
-                self.receiveMessage()
+                self.receiveMessage(on: task)
 
             case .failure(let error):
+                // An expired cookie doesn't produce a JSON error: the service
+                // accepts the handshake, then sends a bare 1000 close frame. So a
+                // clean close before the server said anything means the login is
+                // gone. disconnect() clears webSocketTask, so our own closes (and
+                // those of older connections) never match here.
+                if self.webSocketTask === task,
+                   !self.receivedAnyMessage,
+                   task.closeCode == .normalClosure {
+                    print("[DoubaoASRClient] ⚠️ Server closed the socket before sending anything; treating as expired login")
+                    self.isConnected = false
+                    self.onAuthError?()
+                    return
+                }
                 if self.isConnected {
                     print("[DoubaoASRClient] ❌ Receive error: \(error.localizedDescription)")
                     self.isConnected = false

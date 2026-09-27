@@ -119,6 +119,9 @@ class TranscriptionManager {
         asrClient.onAuthError = { [weak self] in
             Task { @MainActor in
                 guard let self = self else { return }
+                // A dropped socket can surface as both onError and onAuthError;
+                // whichever lands first resets to idle, so only one prompt shows.
+                guard self.appState.recordingState != .idle else { return }
                 self.handleAuthFailure()
             }
         }
