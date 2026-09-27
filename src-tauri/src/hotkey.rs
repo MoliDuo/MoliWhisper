@@ -14,6 +14,8 @@ use crate::dictation::Dictation;
 use crate::settings::Settings;
 use crate::{platform, state_changed};
 
+// Unused until the Windows hook lands (M8).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
 pub enum HookStatus {
@@ -25,6 +27,7 @@ pub enum HookStatus {
     Failed(String),
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 enum Msg {
     Action(Action),
     Recorded(Recorded),
@@ -43,6 +46,7 @@ pub struct Hook {
 impl Hook {
     /// Runs on the hook thread for every key event. Returns whether to
     /// swallow the event; must not block.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn handle(&self, ev: KeyEvent) -> bool {
         let active = self.active.load(Ordering::Relaxed);
         let d = self
