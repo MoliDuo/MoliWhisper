@@ -26,7 +26,10 @@ targets:
       base:
         INFOPLIST_FILE: doubao-murmur/Info.plist
         CODE_SIGN_ENTITLEMENTS: doubao-murmur/doubao-murmur.entitlements
-        CODE_SIGN_IDENTITY: "-"
+        # Stable identity so macOS keeps Accessibility/microphone grants
+        # across rebuilds (ad-hoc signatures change with every build).
+        CODE_SIGN_IDENTITY: "Apple Development"
+        DEVELOPMENT_TEAM: NWTWS269LG
         CODE_SIGN_STYLE: Manual
         PRODUCT_NAME: "Doubao Murmur"
         COMBINE_HIDPI_IMAGES: true
