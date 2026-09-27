@@ -33,6 +33,9 @@ class HotkeyManager:
         self.on_toggle = None  # () -> None
         self.on_cancel = None  # () -> None
         self.on_keyboard = None  # () -> None (toggle on-screen keyboard)
+        # Ctrl+Super+Shift can clash with desktop shortcuts (e.g. KDE), so
+        # users can switch it off; the tray menu still opens the keyboard.
+        self.keyboard_hotkey_enabled = True
         self._overlay_button = None
         self._evdev_listener = None
         self._x11_listener = None
@@ -99,6 +102,8 @@ class HotkeyManager:
 
         Debounced so key auto-repeat (holding the chord) toggles once.
         """
+        if not self.keyboard_hotkey_enabled:
+            return
         now = time.monotonic()
         if now - self._last_keyboard_time < DEBOUNCE_INTERVAL:
             return
