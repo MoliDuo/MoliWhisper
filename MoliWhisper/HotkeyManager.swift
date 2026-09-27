@@ -2,7 +2,7 @@ import Foundation
 import Cocoa
 import os
 
-private let logger = Logger(subsystem: "com.doubao.murmur", category: "HotkeyManager")
+private let logger = Logger(subsystem: "com.moliduo.moliwhisper", category: "HotkeyManager")
 
 class HotkeyManager {
     enum HotkeyEvent {

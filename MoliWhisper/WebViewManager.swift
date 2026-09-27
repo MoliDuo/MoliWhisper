@@ -66,7 +66,7 @@ class WebViewManager: NSObject {
             backing: .buffered,
             defer: false
         )
-        window.title = "Doubao Murmur - Login"
+        window.title = "MoliWhisper - Login"
         window.contentView = wv
         window.isReleasedWhenClosed = false
         self.webViewWindow = window
@@ -150,7 +150,7 @@ class WebViewManager: NSObject {
         guard let wv = webView else { return }
         // Login detection is handled by fetch/XHR interception in inject-websocket.js.
         // As a fallback, check the DOM after a delay.
-        wv.evaluateJavaScript("window.__doubaoMurmur.isLoginButtonPresent()") { [weak self] result, error in
+        wv.evaluateJavaScript("window.__moliWhisper.isLoginButtonPresent()") { [weak self] result, error in
             guard let self = self else { return }
             Task { @MainActor in
                 if let isLoginButton = result as? Bool, isLoginButton {

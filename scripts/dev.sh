@@ -4,21 +4,21 @@ set -e
 cd "$(dirname "$0")/.."
 
 echo "🔨 Building..."
-xcodebuild -project doubao-murmur.xcodeproj \
-  -scheme doubao-murmur \
+xcodebuild -project MoliWhisper.xcodeproj \
+  -scheme MoliWhisper \
   -configuration Debug \
   -derivedDataPath build \
   CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \
   build \
   2>&1 | grep -E '(error:|warning:|BUILD SUCCEEDED|BUILD FAILED)'
 
-APP="build/Build/Products/Debug/Doubao Murmur.app"
+APP="build/Build/Products/Debug/MoliWhisper.app"
 
 # Kill existing instance
-pkill -x "Doubao Murmur" 2>/dev/null || true
+pkill -x "MoliWhisper" 2>/dev/null || true
 sleep 0.5
 
 echo ""
-echo "🚀 Starting Doubao Murmur..."
+echo "🚀 Starting MoliWhisper..."
 echo "---"
-"$APP/Contents/MacOS/Doubao Murmur" 2>&1
+"$APP/Contents/MacOS/MoliWhisper" 2>&1

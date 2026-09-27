@@ -1,7 +1,7 @@
 #!/bin/bash
-# Kill running Doubao Murmur instance
-if pkill -x "Doubao Murmur" 2>/dev/null; then
-  echo "🛑 Doubao Murmur stopped"
+# Kill running MoliWhisper instance
+if pkill -x "MoliWhisper" 2>/dev/null; then
+  echo "🛑 MoliWhisper stopped"
 else
-  echo "ℹ️  Doubao Murmur is not running"
+  echo "ℹ️  MoliWhisper is not running"
 fi

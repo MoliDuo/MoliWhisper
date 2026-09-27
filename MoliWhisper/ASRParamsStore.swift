@@ -7,9 +7,19 @@ struct ASRParamsStore {
 
     private static var fileURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("com.doubao.murmur")
+        let dir = appSupport.appendingPathComponent("com.moliduo.moliwhisper")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent(fileName)
+        let url = dir.appendingPathComponent(fileName)
+        migrateLegacyFile(to: url, appSupport: appSupport)
+        return url
+    }
+
+    /// One-time move of params saved under the pre-rename (Doubao Murmur) bundle ID.
+    private static func migrateLegacyFile(to url: URL, appSupport: URL) {
+        let legacy = appSupport.appendingPathComponent("com.doubao.murmur").appendingPathComponent(fileName)
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: url.path), fm.fileExists(atPath: legacy.path) else { return }
+        try? fm.moveItem(at: legacy, to: url)
     }
 
     static func save(_ params: DoubaoASRParams) {

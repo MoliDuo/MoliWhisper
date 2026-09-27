@@ -1,6 +1,6 @@
-name: doubao-murmur
+name: MoliWhisper
 options:
-  bundleIdPrefix: com.doubao
+  bundleIdPrefix: com.moliduo
   deploymentTarget:
     macOS: "13.0"
   xcodeVersion: "15.4"
@@ -8,45 +8,45 @@ options:
 
 settings:
   base:
-    PRODUCT_BUNDLE_IDENTIFIER: com.doubao.murmur
+    PRODUCT_BUNDLE_IDENTIFIER: com.moliduo.moliwhisper
     MARKETING_VERSION: "1.5.1"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.9"
     MACOSX_DEPLOYMENT_TARGET: "13.0"
 
 targets:
-  doubao-murmur:
+  MoliWhisper:
     type: application
     platform: macOS
     sources:
-      - path: doubao-murmur
+      - path: MoliWhisper
         excludes:
           - "*.md"
     settings:
       base:
-        INFOPLIST_FILE: doubao-murmur/Info.plist
-        CODE_SIGN_ENTITLEMENTS: doubao-murmur/doubao-murmur.entitlements
+        INFOPLIST_FILE: MoliWhisper/Info.plist
+        CODE_SIGN_ENTITLEMENTS: MoliWhisper/MoliWhisper.entitlements
         # Stable identity so macOS keeps Accessibility/microphone grants
         # across rebuilds (ad-hoc signatures change with every build).
         CODE_SIGN_IDENTITY: "Apple Development"
         DEVELOPMENT_TEAM: NWTWS269LG
         CODE_SIGN_STYLE: Manual
-        PRODUCT_NAME: "Doubao Murmur"
+        PRODUCT_NAME: "MoliWhisper"
         COMBINE_HIDPI_IMAGES: true
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
         LD_RUNPATH_SEARCH_PATHS:
           - "@executable_path/../Frameworks"
     info:
-      path: doubao-murmur/Info.plist
+      path: MoliWhisper/Info.plist
       properties:
         LSUIElement: true
-        NSMicrophoneUsageDescription: "Doubao Murmur needs microphone access to enable voice-to-text transcription."
-        CFBundleName: "Doubao Murmur"
-        CFBundleDisplayName: "Doubao Murmur"
+        NSMicrophoneUsageDescription: "MoliWhisper needs microphone access to enable voice-to-text transcription."
+        CFBundleName: "MoliWhisper"
+        CFBundleDisplayName: "MoliWhisper"
         CFBundleIconFile: "AppIcon"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
     entitlements:
-      path: doubao-murmur/doubao-murmur.entitlements
+      path: MoliWhisper/MoliWhisper.entitlements
       properties:
         com.apple.security.app-sandbox: false

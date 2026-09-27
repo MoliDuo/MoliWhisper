@@ -3,15 +3,15 @@
 set -eo pipefail
 cd "$(dirname "$0")/.."
 
-APP_NAME="Doubao Murmur"
+APP_NAME="MoliWhisper"
 DEST="/Applications/$APP_NAME.app"
 
 # Regenerate so project.yml changes (version, new files) are picked up
 xcodegen generate --quiet
 
 echo "🔨 Building Release..."
-xcodebuild -project doubao-murmur.xcodeproj \
-  -scheme doubao-murmur \
+xcodebuild -project MoliWhisper.xcodeproj \
+  -scheme MoliWhisper \
   -configuration Release \
   -derivedDataPath build \
   CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \

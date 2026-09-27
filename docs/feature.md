@@ -1,4 +1,4 @@
-我想做一个语音输入法 doubao-murmur，但是我的思路比较特殊：
+我想做一个语音输入法 MoliWhisper，但是我的思路比较特殊：
 1. 通过某种方式调用 doubao 的 web 版本：https://www.doubao.com/chat（前提用户登录了）中的语音输入法模块
 2. 读取 input 中 doubao 处理好了文本
 3. 返回给用户

@@ -3,7 +3,7 @@
 (function() {
     'use strict';
 
-    window.__doubaoMurmur = {
+    window.__moliWhisper = {
         isLoginButtonPresent: function() {
             return !!document.querySelector('button[data-testid="to_login_button"]');
         }

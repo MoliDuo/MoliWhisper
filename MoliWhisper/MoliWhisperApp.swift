@@ -2,7 +2,7 @@ import SwiftUI
 import AVFoundation
 
 @main
-struct DoubaoMurmurApp: App {
+struct MoliWhisperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
@@ -36,7 +36,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Doubao Murmur")
+            button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "MoliWhisper")
         }
         let menu = NSMenu()
         menu.delegate = self
@@ -89,7 +89,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "未知"
 
         let alert = NSAlert()
-        alert.messageText = "Doubao Murmur 使用帮助"
+        alert.messageText = "MoliWhisper 使用帮助"
         alert.informativeText = """
         版本: \(appVersion) (\(buildNumber))
 

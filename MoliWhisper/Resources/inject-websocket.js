@@ -62,11 +62,11 @@
     var OriginalXHROpen = XMLHttpRequest.prototype.open;
     var OriginalXHRSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function(method, url) {
-        this.__doubaoMurmurUrl = url;
+        this.__moliWhisperUrl = url;
         return OriginalXHROpen.apply(this, arguments);
     };
     XMLHttpRequest.prototype.send = function() {
-        if (this.__doubaoMurmurUrl && this.__doubaoMurmurUrl.includes('/alice/profile/self')) {
+        if (this.__moliWhisperUrl && this.__moliWhisperUrl.includes('/alice/profile/self')) {
             this.addEventListener('load', function() {
                 try {
                     var data = JSON.parse(this.responseText);

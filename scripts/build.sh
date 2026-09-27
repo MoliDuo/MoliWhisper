@@ -3,9 +3,9 @@
 set -e
 cd "$(dirname "$0")/.."
 
-echo "🔨 Building doubao-murmur..."
-xcodebuild -project doubao-murmur.xcodeproj \
-  -scheme doubao-murmur \
+echo "🔨 Building MoliWhisper..."
+xcodebuild -project MoliWhisper.xcodeproj \
+  -scheme MoliWhisper \
   -configuration Debug \
   -derivedDataPath build \
   CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \

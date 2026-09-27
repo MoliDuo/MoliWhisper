@@ -1,5 +1,5 @@
 
-# Doubao Murmur
+# MoliWhisper
 
 通过利用豆包 Web 版的语音识别能力，在 macOS 上实现全局语音输入：按下右 `⌥ Option` 键开始/停止语音识别，识别结果自动复制到剪贴板并粘贴到当前光标所在的输入框。
 
@@ -68,7 +68,7 @@
 
 ## 开发
 
-Swift + SwiftUI，代码在 [`doubao-murmur/`](doubao-murmur)。
+Swift + SwiftUI，代码在 [`MoliWhisper/`](MoliWhisper)。
 
 ### 环境要求
 

@@ -1,4 +1,4 @@
-# Plan: doubao-murmur macOS Voice Input App
+# Plan: MoliWhisper macOS Voice Input App
 
 ## TL;DR
 Build a Swift + SwiftUI menu bar app that embeds a hidden WKWebView loading doubao.com/chat, intercepts its ASR (speech recognition) WebSocket messages via JS injection, and presents real-time transcription in a floating overlay. Right ⌥ Option toggles recording; ESC cancels. Final text is copied to clipboard and auto-pasted.
@@ -7,7 +7,7 @@ Build a Swift + SwiftUI menu bar app that embeds a hidden WKWebView loading doub
 
 ```
 ┌─────────────────────────────────────────────┐
-│  doubao-murmur (menu bar app, no Dock icon) │
+│  MoliWhisper (menu bar app, no Dock icon) │
 ├─────────────────────────────────────────────┤
 │  HotkeyManager                              │
 │  ├─ CGEvent tap for Right ⌥ / ESC           │
@@ -39,7 +39,7 @@ Build a Swift + SwiftUI menu bar app that embeds a hidden WKWebView loading doub
 ## Steps
 
 ### Phase 1: Project Scaffold & Menu Bar App
-1. Create Xcode project `doubao-murmur` (macOS, SwiftUI App lifecycle)
+1. Create Xcode project `MoliWhisper` (macOS, SwiftUI App lifecycle)
 2. Configure as menu bar-only app: `LSUIElement = true` in Info.plist (hide Dock icon)
 3. Create `AppDelegate` with `NSStatusItem` for menu bar icon (microphone icon SF Symbol `mic.fill`)
 4. Menu bar dropdown:
@@ -124,10 +124,10 @@ Build a Swift + SwiftUI menu bar app that embeds a hidden WKWebView loading doub
 ## Project Structure
 
 ```
-doubao-murmur/
-├── doubao-murmur.xcodeproj
-└── doubao-murmur/
-    ├── DoubaoMurmurApp.swift          — @main, SwiftUI App with menu bar scene
+MoliWhisper/
+├── MoliWhisper.xcodeproj
+└── MoliWhisper/
+    ├── MoliWhisperApp.swift          — @main, SwiftUI App with menu bar scene
     ├── AppState.swift                 — ObservableObject shared state
     ├── MenuBarView.swift              — Menu bar dropdown UI
     ├── HotkeyManager.swift            — CGEvent tap for Right ⌥ / ESC
@@ -141,13 +141,13 @@ doubao-murmur/
     │   ├── inject-dom.js              — DOM helper functions (document end)
     │   └── Assets.xcassets
     ├── Info.plist
-    └── doubao-murmur.entitlements     — App Sandbox + network + mic
+    └── MoliWhisper.entitlements     — App Sandbox + network + mic
 ```
 
 ## Relevant Files (to create)
 
 - `Info.plist` — `LSUIElement=true`, `NSMicrophoneUsageDescription`, App Transport Security exceptions
-- `doubao-murmur.entitlements` — `com.apple.security.app-sandbox`, `com.apple.security.network.client`, `com.apple.security.device.microphone`, `com.apple.security.device.audio-input`
+- `MoliWhisper.entitlements` — `com.apple.security.app-sandbox`, `com.apple.security.network.client`, `com.apple.security.device.microphone`, `com.apple.security.device.audio-input`
 - `inject-websocket.js` — Core JS: monkey-patches `WebSocket` (ASR 拦截) + `fetch`/`XMLHttpRequest` (profile API 登录检测), forwards to Swift via `webkit.messageHandlers`
 - `inject-dom.js` — DOM interaction: `clickAsrButton()`, `getAsrButtonState()`, `isLoginButtonPresent()`
 - `WebViewManager.swift` — Heaviest component: WKWebView config, content rule list for blocking `/chat/completion`, JS injection, WKScriptMessageHandler, WKUIDelegate for mic, WKNavigationDelegate for login redirect detection

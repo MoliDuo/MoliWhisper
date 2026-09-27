@@ -2,7 +2,7 @@ import Foundation
 import Combine
 import os
 
-private let tmLogger = Logger(subsystem: "com.doubao.murmur", category: "TranscriptionManager")
+private let tmLogger = Logger(subsystem: "com.moliduo.moliwhisper", category: "TranscriptionManager")
 
 @MainActor
 class TranscriptionManager {

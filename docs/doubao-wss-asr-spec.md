@@ -109,7 +109,7 @@ WSS 连接的认证通过浏览器自动携带的 `.doubao.com` 域 cookie 完�
 
 ### 3.2 WKWebView 中如何提取 Cookie
 
-在当前 doubao-murmur 的 WKWebView 架构中，cookie 由 `WKWebsiteDataStore.default()` 管理。要提取 httpOnly cookie 用于直接 WSS 调用：
+在当前 MoliWhisper 的 WKWebView 架构中，cookie 由 `WKWebsiteDataStore.default()` 管理。要提取 httpOnly cookie 用于直接 WSS 调用：
 
 ```swift
 // 方法 1: 通过 WKHTTPCookieStore 获取所有 cookie（包括 httpOnly）

@@ -28,8 +28,8 @@ jobs:
 
       - name: Build
         run: |
-          xcodebuild -project doubao-murmur.xcodeproj \
-            -scheme doubao-murmur \
+          xcodebuild -project MoliWhisper.xcodeproj \
+            -scheme MoliWhisper \
             -configuration Release \
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="-" \
@@ -40,10 +40,10 @@ jobs:
 
       - name: Package app
         run: |
-          APP_PATH="build/Build/Products/Release/Doubao Murmur.app"
+          APP_PATH="build/Build/Products/Release/MoliWhisper.app"
           cd "$(dirname "$APP_PATH")"
-          zip -r -y "Doubao-Murmur-${GITHUB_REF_NAME}.zip" "Doubao Murmur.app"
-          echo "ARTIFACT_PATH=$(pwd)/Doubao-Murmur-${GITHUB_REF_NAME}.zip" >> "$GITHUB_ENV"
+          zip -r -y "MoliWhisper-${GITHUB_REF_NAME}.zip" "MoliWhisper.app"
+          echo "ARTIFACT_PATH=$(pwd)/MoliWhisper-${GITHUB_REF_NAME}.zip" >> "$GITHUB_ENV"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
