@@ -23,28 +23,22 @@ pub enum AuthStatus {
 }
 
 pub struct Auth {
-    store: Result<CredStore, String>,
+    store: CredStore,
     current: Mutex<Option<StoredCredentials>>,
 }
 
 impl Auth {
     pub fn load(data_dir: &Path) -> Self {
-        let store = CredStore::open(data_dir).map_err(|e| e.to_string());
-        let current = match &store {
-            Ok(s) => match s.load() {
-                Ok(c) => c,
-                Err(e @ (StoreError::KeyMissing | StoreError::Corrupt)) => {
-                    // Kept on disk; the next login overwrites it.
-                    log::warn!("stored credentials unusable, treating as logged out: {e}");
-                    None
-                }
-                Err(e) => {
-                    log::error!("could not read stored credentials: {e}");
-                    None
-                }
-            },
+        let store = CredStore::open(data_dir);
+        let current = match store.load() {
+            Ok(c) => c,
+            Err(e @ StoreError::Corrupt) => {
+                // Kept on disk; the next login overwrites it.
+                log::warn!("stored credentials unusable, treating as logged out: {e}");
+                None
+            }
             Err(e) => {
-                log::error!("credential store unavailable: {e}");
+                log::error!("could not read stored credentials: {e}");
                 None
             }
         };
@@ -96,7 +90,7 @@ impl Auth {
 
     pub fn save(&self, credentials: Credentials) -> Result<(), String> {
         let stored = StoredCredentials::new(credentials);
-        self.store()?.save(&stored).map_err(|e| e.to_string())?;
+        self.store.save(&stored).map_err(|e| e.to_string())?;
         *self.current.lock().unwrap() = Some(stored);
         Ok(())
     }
@@ -108,19 +102,13 @@ impl Auth {
             return;
         };
         stored.rejected_at = Some(store::now());
-        if let Ok(s) = &self.store
-            && let Err(e) = s.save(stored)
-        {
+        if let Err(e) = self.store.save(stored) {
             log::error!("could not persist the rejected flag: {e}");
         }
     }
 
     pub fn logout(&self) -> Result<(), String> {
         *self.current.lock().unwrap() = None;
-        self.store()?.clear().map_err(|e| e.to_string())
-    }
-
-    fn store(&self) -> Result<&CredStore, String> {
-        self.store.as_ref().map_err(Clone::clone)
+        self.store.clear().map_err(|e| e.to_string())
     }
 }

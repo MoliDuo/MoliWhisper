@@ -9,8 +9,7 @@
 //! cargo run -p moli-core --example asr_probe -- --verify
 //! ```
 //!
-//! By default it uses the credentials the app saved (the keychain may ask for
-//! access). `--creds file.json` or `MOLI_CREDS` points at a plain JSON file
+//! By default it uses the credentials the app saved. `--creds file.json` or `MOLI_CREDS` points at a plain JSON file
 //! `{device_id, web_id, cookies: {name: value}}` instead.
 
 use std::collections::BTreeMap;
