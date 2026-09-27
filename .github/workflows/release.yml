@@ -50,6 +50,5 @@ jobs:
         with:
           generate_release_notes: true
           files: ${{ env.ARTIFACT_PATH }}
-          # See the note in flatpak-release.yml: every workflow that updates
-          # the release must agree on this flag.
+          # Tags with a suffix (v1.6.0-beta.1) are published as prereleases.
           prerelease: ${{ contains(github.ref_name, '-') }}
