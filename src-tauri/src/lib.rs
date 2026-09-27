@@ -1,14 +1,18 @@
+mod auth;
+mod login;
 mod tray;
 mod windows;
 
-use tauri::{Manager, RunEvent};
+use tauri::{AppHandle, Manager, RunEvent, Runtime};
 use tauri_plugin_log::{Target, TargetKind, TimezoneStrategy};
 
 pub fn run() {
     let app = tauri::Builder::default()
-        // Must come first: a second launch just opens the settings of the running one.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            windows::show_settings(app);
+        // Must come first: a second launch hands its arguments to the running one.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if !handle_args(app, &argv) {
+                windows::show_settings(app);
+            }
         }))
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -26,12 +30,14 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-            tray::create(app.handle())?;
+            let data_dir = app.path().app_data_dir()?;
             log::info!(
-                "MoliWhisper {} started, data dir {:?}",
-                app.package_info().version,
-                app.path().app_data_dir().ok()
+                "MoliWhisper {} started, data dir {data_dir:?}",
+                app.package_info().version
             );
+            app.manage(auth::Auth::load(&data_dir));
+            tray::create(app.handle())?;
+            handle_args(app.handle(), &std::env::args().collect::<Vec<_>>());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -46,4 +52,21 @@ pub fn run() {
             api.prevent_exit();
         }
     });
+}
+
+/// `--login` opens the login window, `--logout` forgets the session. Returns
+/// whether any argument was acted on.
+fn handle_args<R: Runtime>(app: &AppHandle<R>, argv: &[String]) -> bool {
+    let mut handled = false;
+    for arg in argv.iter().skip(1) {
+        match arg.as_str() {
+            "--login" => login::open(app, false),
+            "--logout" => {
+                tauri::async_runtime::spawn(login::logout(app.clone()));
+            }
+            _ => continue,
+        }
+        handled = true;
+    }
+    handled
 }

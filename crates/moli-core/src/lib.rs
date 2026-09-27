@@ -5,3 +5,4 @@
 
 pub mod asr;
 pub mod creds;
+pub mod store;

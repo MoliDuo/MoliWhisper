@@ -4,12 +4,14 @@
 //! and reports how complete the final text is and how long it took to arrive.
 //!
 //! ```text
-//! MOLI_CREDS=creds.json cargo run -p moli-core --example asr_probe -- \
+//! cargo run -p moli-core --example asr_probe -- \
 //!     --wav crates/moli-core/fixtures/zh_short.wav --strategy finish --repeat 20
+//! cargo run -p moli-core --example asr_probe -- --verify
 //! ```
 //!
-//! Credentials are JSON `{device_id, web_id, cookies: {name: value}}`; on macOS
-//! it falls back to the file the legacy Swift app saved.
+//! By default it uses the credentials the app saved (the keychain may ask for
+//! access). `--creds file.json` or `MOLI_CREDS` points at a plain JSON file
+//! `{device_id, web_id, cookies: {name: value}}` instead.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -17,8 +19,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use moli_core::asr::params::Overrides;
-use moli_core::asr::{AsrEvent, ConnectOptions, ServerMsg, connect};
+use moli_core::asr::{AsrEvent, ConnectOptions, ServerMsg, connect, verify};
 use moli_core::creds::Credentials;
+use moli_core::store::CredStore;
 use tokio::sync::mpsc;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -51,6 +54,7 @@ struct Args {
     user_agent: bool,
     overrides: Overrides,
     verbose: bool,
+    verify: bool,
 }
 
 fn parse_args() -> anyhow::Result<Args> {
@@ -70,6 +74,7 @@ fn parse_args() -> anyhow::Result<Args> {
         user_agent: true,
         overrides: Overrides::new(),
         verbose: false,
+        verify: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -118,10 +123,11 @@ fn parse_args() -> anyhow::Result<Args> {
                 a.overrides.insert(val()?, None);
             }
             "-v" | "--verbose" => a.verbose = true,
+            "--verify" => a.verify = true,
             _ => bail!("unknown flag {flag}"),
         }
     }
-    if a.wav.as_os_str().is_empty() {
+    if a.wav.as_os_str().is_empty() && !a.verify {
         bail!("--wav is required");
     }
     if a.expect.is_none() {
@@ -131,17 +137,24 @@ fn parse_args() -> anyhow::Result<Args> {
 }
 
 fn load_creds(path: Option<&Path>) -> anyhow::Result<Credentials> {
-    let path = match path {
-        Some(p) => p.to_path_buf(),
+    let (creds, path) = match path {
+        Some(p) => {
+            let text =
+                std::fs::read_to_string(p).with_context(|| format!("read {}", p.display()))?;
+            let creds: Credentials = serde_json::from_str(&text).context("parse credentials")?;
+            (creds, p.to_path_buf())
+        }
         None => {
-            let home = std::env::var_os("HOME").context("HOME not set")?;
-            PathBuf::from(home)
-                .join("Library/Application Support/com.moliduo.moliwhisper/asr_params.json")
+            let store = CredStore::open_default()?;
+            let stored = store
+                .load()?
+                .with_context(|| format!("not logged in ({} missing)", store.path().display()))?;
+            if let Some(at) = stored.rejected_at {
+                eprintln!("warning: the app marked this session rejected at unix {at}");
+            }
+            (stored.credentials, store.path().to_path_buf())
         }
     };
-    let text =
-        std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-    let creds: Credentials = serde_json::from_str(&text).context("parse credentials")?;
     if !creds.has_session() {
         eprintln!(
             "warning: credentials in {} lack sessionid/sid_guard/device_id/web_id",
@@ -379,6 +392,18 @@ async fn main() -> anyhow::Result<()> {
         .init();
     let args = parse_args()?;
     let creds = load_creds(args.creds.as_deref())?;
+    if args.verify {
+        for i in 0..args.repeat {
+            let t = Instant::now();
+            let verdict = verify(&ConnectOptions::new(&creds, &args.overrides)).await;
+            println!(
+                "#{:<2} {verdict:?} in {} ms",
+                i + 1,
+                t.elapsed().as_millis()
+            );
+        }
+        return Ok(());
+    }
     let pcm = load_pcm(&args.wav, args.trim)?;
     let expect = args.expect.as_deref().map(normalize);
     println!(

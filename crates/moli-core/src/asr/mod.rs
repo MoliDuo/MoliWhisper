@@ -6,6 +6,8 @@
 pub mod client;
 pub mod params;
 pub mod protocol;
+pub mod verify;
 
 pub use client::{AsrEvent, AsrSink, AsrStream, ConnectError, ConnectOptions, connect};
 pub use protocol::ServerMsg;
+pub use verify::{Verdict, verify};
