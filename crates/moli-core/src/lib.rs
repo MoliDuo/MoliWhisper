@@ -5,6 +5,8 @@
 
 pub mod asr;
 pub mod audio;
+pub mod config;
 pub mod creds;
+pub mod hotkey;
 pub mod session;
 pub mod store;
