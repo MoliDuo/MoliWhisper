@@ -20,7 +20,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyManager: HotkeyManager!
     private var transcriptionManager: TranscriptionManager!
     private var overlayPanel: OverlayPanel!
-    private var appUpdater: AppUpdater?
     private let appState = AppState.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -73,7 +72,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(NSMenuItem(title: "使用帮助", action: #selector(showHelp), keyEquivalent: "h"))
-        menu.addItem(NSMenuItem(title: "检查更新", action: #selector(checkForUpdates), keyEquivalent: "u"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "退出", action: #selector(quitApp), keyEquivalent: "q"))
     }
@@ -114,44 +112,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         alert.alertStyle = .informational
         alert.addButton(withTitle: "好的")
         alert.runModal()
-    }
-
-    @objc private func checkForUpdates() {
-        Task {
-            do {
-                if let update = try await UpdateChecker.check() {
-                    let alert = NSAlert()
-                    alert.messageText = "发现新版本"
-                    alert.informativeText = "新版本 v\(update.version) 已发布，是否立即更新？"
-                    alert.alertStyle = .informational
-                    alert.addButton(withTitle: "立即更新")
-                    alert.addButton(withTitle: "稍后再说")
-                    NSApp.activate(ignoringOtherApps: true)
-                    let response = alert.runModal()
-                    if response == .alertFirstButtonReturn {
-                        let updater = AppUpdater()
-                        self.appUpdater = updater
-                        updater.downloadAndInstall(update: update)
-                    }
-                } else {
-                    let alert = NSAlert()
-                    alert.messageText = "检查更新"
-                    alert.informativeText = "当前已是最新版本。"
-                    alert.alertStyle = .informational
-                    alert.addButton(withTitle: "好的")
-                    NSApp.activate(ignoringOtherApps: true)
-                    alert.runModal()
-                }
-            } catch {
-                let alert = NSAlert()
-                alert.messageText = "检查更新失败"
-                alert.informativeText = "无法连接到 GitHub，请检查网络连接。\n\(error.localizedDescription)"
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "好的")
-                NSApp.activate(ignoringOtherApps: true)
-                alert.runModal()
-            }
-        }
     }
 
     @objc private func quitApp() {
