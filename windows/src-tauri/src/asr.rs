@@ -9,6 +9,8 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::config;
@@ -170,6 +172,8 @@ async fn run<F: Fn(AsrEvent)>(
 
     let mut sending = true;
     let mut closed_by_us = false;
+    let mut received_any = false;
+    let mut login_expired = false;
 
     loop {
         tokio::select! {
@@ -207,12 +211,14 @@ async fn run<F: Fn(AsrEvent)>(
 
             incoming = read.next() => match incoming {
                 Some(Ok(Message::Text(text))) => {
+                    received_any = true;
                     if handle_message(&text, &emit) {
                         closed_by_us = true;
                         break;
                     }
                 }
                 Some(Ok(Message::Binary(bytes))) => {
+                    received_any = true;
                     let text = String::from_utf8_lossy(&bytes).into_owned();
                     if handle_message(&text, &emit) {
                         closed_by_us = true;
@@ -221,6 +227,7 @@ async fn run<F: Fn(AsrEvent)>(
                 }
                 Some(Ok(Message::Close(frame))) => {
                     log_info!("Server closed the socket: {frame:?}");
+                    login_expired = is_silent_rejection(received_any, frame.as_ref());
                     break;
                 }
                 Some(Ok(_)) => {}
@@ -234,7 +241,10 @@ async fn run<F: Fn(AsrEvent)>(
         }
     }
 
-    if !closed_by_us {
+    if login_expired {
+        log_warn!("Server closed the socket before sending anything; treating as expired login");
+        emit(AsrEvent::AuthError);
+    } else if !closed_by_us {
         emit(AsrEvent::Error("连接已关闭".to_string()));
     }
 
@@ -298,6 +308,13 @@ fn handle_message(text: &str, emit: &dyn Fn(AsrEvent)) -> bool {
     }
 
     false
+}
+
+/// An expired cookie doesn't produce a JSON error: the service accepts the
+/// handshake, then sends a bare 1000 close frame. So a clean close before the
+/// server said anything means the login is gone.
+fn is_silent_rejection(received_any: bool, frame: Option<&CloseFrame<'static>>) -> bool {
+    !received_any && frame.is_some_and(|frame| frame.code == CloseCode::Normal)
 }
 
 pub fn is_auth_error(code: i64, message: &str) -> bool {
@@ -405,6 +422,23 @@ mod tests {
             r#"{"code":709599054,"message":"invalid"}"#,
             &emit
         ));
+    }
+
+    #[test]
+    fn clean_close_before_any_message_means_login_expired() {
+        let frame = CloseFrame {
+            code: CloseCode::Normal,
+            reason: "1000-".into(),
+        };
+        assert!(is_silent_rejection(false, Some(&frame)));
+        assert!(!is_silent_rejection(true, Some(&frame)));
+
+        let going_away = CloseFrame {
+            code: CloseCode::Away,
+            reason: "".into(),
+        };
+        assert!(!is_silent_rejection(false, Some(&going_away)));
+        assert!(!is_silent_rejection(false, None));
     }
 
     #[test]

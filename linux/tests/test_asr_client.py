@@ -209,3 +209,76 @@ class TestDependencyHandling:
 
         assert _is_connection_closed_error(ConnectionClosedOK())
         assert not _is_connection_closed_error(RuntimeError())
+
+
+class _FakeSocket:
+    """Stands in for a websockets connection: yields `messages`, then ends
+    the iteration the way a clean (1000) close does."""
+
+    def __init__(self, messages, before_close=None):
+        self.messages = messages
+        self.before_close = before_close
+        self.close_code = 1000
+
+    async def _iterate(self):
+        for message in self.messages:
+            yield message
+        if self.before_close:
+            self.before_close()
+
+    def __aiter__(self):
+        return self._iterate()
+
+    async def close(self, *args):
+        pass
+
+
+class _FakeWebsockets:
+    def __init__(self, socket):
+        self.socket = socket
+
+    async def connect(self, url, **kwargs):
+        return self.socket
+
+
+class TestSilentServerClose:
+    """An expired cookie makes the server close cleanly without a word."""
+
+    def _run(self, monkeypatch, client, params, socket):
+        import asyncio
+
+        import doubao_murmur.asr_client as asr_client
+
+        monkeypatch.setattr(
+            asr_client, "_load_websockets", lambda: _FakeWebsockets(socket)
+        )
+        calls = []
+        client.on_auth_error = lambda: calls.append("auth")
+        client.on_error = lambda err: calls.append("error")
+        asyncio.run(client._connect_and_listen(params))
+        return calls
+
+    def test_close_before_any_message_is_auth_error(
+        self, monkeypatch, client, sample_params
+    ):
+        calls = self._run(monkeypatch, client, sample_params, _FakeSocket([]))
+        assert calls == ["auth"]
+        assert not client.is_connected
+
+    def test_close_after_results_is_not_auth_error(
+        self, monkeypatch, client, sample_params
+    ):
+        result = json.dumps(
+            {"code": 0, "event": "result", "result": {"Text": "你好"}}
+        )
+        calls = self._run(
+            monkeypatch, client, sample_params, _FakeSocket([result])
+        )
+        assert calls == []
+
+    def test_our_own_disconnect_is_not_auth_error(
+        self, monkeypatch, client, sample_params
+    ):
+        socket = _FakeSocket([], before_close=client.disconnect)
+        calls = self._run(monkeypatch, client, sample_params, socket)
+        assert calls == []

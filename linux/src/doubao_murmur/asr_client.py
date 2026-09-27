@@ -114,10 +114,27 @@ class ASRClient:
                     self.on_open()
 
                 # Receive loop
+                received_any = False
                 async for message in ws:
+                    received_any = True
                     self._handle_message(message)
             finally:
                 await ws.close()
+
+            # An expired cookie doesn't produce a JSON error: the service
+            # accepts the handshake, then sends a bare 1000 close frame. So a
+            # clean close we didn't ask for, before the server said anything,
+            # means the login is gone. disconnect() detaches self._ws before
+            # closing, so our own closes never land here.
+            if not received_any and self._ws is ws:
+                logger.warning(
+                    "Server closed the socket before sending anything "
+                    "(close code %s); treating as expired login",
+                    getattr(ws, "close_code", None),
+                )
+                self._connected = False
+                if self.on_auth_error:
+                    self.on_auth_error()
 
         except Exception as e:
             if _is_connection_closed_error(e):
@@ -186,11 +203,11 @@ class ASRClient:
         self._connected = False
         with self._lock:
             self._pending_audio.clear()
-        if self._ws and self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(
-                self._ws.close(1000, "1000-"), self._loop
-            )
-        self._ws = None
+        # Detach before closing so the receive loop can tell our close apart
+        # from the server's.
+        ws, self._ws = self._ws, None
+        if ws and self._loop and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(ws.close(1000, "1000-"), self._loop)
         logger.info("Disconnected")
 
     def _flush_audio_buffer(self) -> None:
