@@ -4,7 +4,9 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::auth::{Auth, AuthStatus};
-use crate::{TEST_DICTATION_SECS, dictation, login, windows};
+use crate::hotkey::{self, HookStatus, HotkeyState};
+use crate::settings::Settings;
+use crate::{login, platform, windows};
 
 pub const TRAY_ID: &str = "main";
 
@@ -23,7 +25,10 @@ pub fn create<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             "logout" => {
                 tauri::async_runtime::spawn(login::logout(app.clone()));
             }
-            "dictate" => dictation::dictate_for(app, TEST_DICTATION_SECS),
+            "accessibility" => {
+                platform::request_accessibility();
+                platform::open_accessibility_settings();
+            }
             "settings" => windows::show_settings(app),
             "quit" => app.exit(0),
             _ => {}
@@ -76,11 +81,31 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     if logged_in {
         menu = menu.text("logout", "退出登录");
     }
+    menu = menu.separator().item(&MenuItem::with_id(
+        app,
+        "usage",
+        hotkey_line(app),
+        false,
+        None::<&str>,
+    )?);
+    if !platform::accessibility_trusted() {
+        menu = menu.text("accessibility", "授予辅助功能权限…");
+    }
     menu.separator()
-        .text("dictate", format!("听写 {TEST_DICTATION_SECS} 秒（测试）"))
-        .separator()
         .text("settings", "设置…")
         .separator()
         .text("quit", "退出 MoliWhisper")
         .build()
+}
+
+fn hotkey_line<R: Runtime>(app: &AppHandle<R>) -> String {
+    let config = app.state::<Settings>().get();
+    let status = app
+        .try_state::<HotkeyState>()
+        .map_or(HookStatus::Starting, |h| h.0.status());
+    match status {
+        HookStatus::Running | HookStatus::Starting => hotkey::usage(&config.hotkey, config.mode),
+        HookStatus::NeedsPermission => "热键需要辅助功能权限".into(),
+        HookStatus::Unsupported(why) | HookStatus::Failed(why) => why,
+    }
 }

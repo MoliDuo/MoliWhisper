@@ -21,8 +21,15 @@ log = "0.4"
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon", "macos-private-api", "image-png"] }
+tauri-plugin-autostart = "2"
 tauri-plugin-log = "2"
 tauri-plugin-single-instance = "2"
 tokio.workspace = true
 # Routes moli-core's tracing events into the `log` records tauri-plugin-log writes.
 tracing = { workspace = true, features = ["log"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString"] }
+objc2-app-kit = { version = "0.3", features = ["NSPasteboard", "NSPasteboardItem", "NSResponder", "NSWindow"] }

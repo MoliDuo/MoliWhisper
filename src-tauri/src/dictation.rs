@@ -5,13 +5,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use moli_core::asr::ConnectOptions;
-use moli_core::asr::params::Overrides;
 use moli_core::audio::{self, AudioInput};
-use moli_core::session::{Controller, Env, Outcome, Timings, Update};
+use moli_core::session::{Controller, Env, Outcome, Phase, Timings, Update};
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::auth::{Auth, AuthStatus};
-use crate::tray;
+use crate::hotkey::HotkeyState;
+use crate::settings::Settings;
+use crate::{login, overlay, platform, state_changed};
 
 pub struct Dictation(pub Controller);
 
@@ -22,7 +23,7 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) {
     app.manage(Dictation(controller));
 }
 
-/// Records for `secs` seconds, then stops. A stand-in for the hotkey.
+/// Records for `secs` seconds, then stops (`--dictate`, for testing).
 pub fn dictate_for<R: Runtime>(app: &AppHandle<R>, secs: u64) {
     let controller = app.state::<Dictation>().0.clone();
     controller.start();
@@ -44,31 +45,52 @@ impl<R: Runtime> Env for AppEnv<R> {
             AuthStatus::LoggedOut | AuthStatus::Rejected | AuthStatus::Expired => return None,
         }
         let creds = auth.credentials()?;
-        Some(ConnectOptions::new(&creds, &Overrides::new()))
+        let overrides = self.app.state::<Settings>().get().asr.param_overrides;
+        Some(ConnectOptions::new(&creds, &overrides))
     }
 
     fn start_audio(&self) -> AudioInput {
+        #[cfg(debug_assertions)]
+        if let Some(input) = crate::test_audio::from_env() {
+            return input;
+        }
         audio::capture::start()
     }
 
     fn deliver(&self, text: String) -> impl Future<Output = Result<(), String>> + Send + 'static {
-        // Paste lands in M6; until then the log is the output.
-        log::info!("recognized: {text}");
-        async { Ok(()) }
+        log::info!("recognized {} characters", text.chars().count());
+        let app = self.app.clone();
+        let restore = app.state::<Settings>().get().restore_clipboard;
+        async move { platform::paste(&app, text, restore).await }
     }
 
     fn session_rejected(&self) {
         self.app.state::<Auth>().mark_rejected();
-        tray::refresh(&self.app);
+        state_changed(&self.app);
     }
 
     fn update(&self, update: Update) {
-        if let Update::Outcome(outcome) = update {
+        if let Update::Phase(phase) = update
+            && let Some(hotkey) = self.app.try_state::<HotkeyState>()
+        {
+            let active = matches!(
+                phase,
+                Phase::Connecting | Phase::Recording | Phase::Finalizing
+            );
+            hotkey.0.set_active(active);
+        }
+        if let Update::Outcome(outcome) = &update {
             match outcome {
-                Outcome::NeedLogin => log::warn!("dictation needs a login first"),
                 Outcome::Done { .. } | Outcome::Empty | Outcome::Cancelled => {}
+                Outcome::NeedLogin | Outcome::SessionRejected => {
+                    log::warn!("dictation needs a login: {outcome:?}");
+                    let fresh = matches!(self.app.state::<Auth>().status(), AuthStatus::Rejected)
+                        || *outcome == Outcome::SessionRejected;
+                    login::open(&self.app, fresh);
+                }
                 other => log::warn!("dictation failed: {other:?}"),
             }
         }
+        overlay::update(&self.app, &update);
     }
 }

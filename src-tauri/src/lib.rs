@@ -1,13 +1,21 @@
 mod auth;
+mod commands;
 mod dictation;
+mod hotkey;
 mod login;
+mod overlay;
+mod platform;
+mod settings;
+#[cfg(debug_assertions)]
+mod test_audio;
 mod tray;
 mod windows;
 
-use tauri::{AppHandle, Manager, RunEvent, Runtime};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime};
+use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_log::{Target, TargetKind, TimezoneStrategy};
 
-/// Length of the test dictation from the tray or `--dictate`.
+/// Length of the test dictation from `--dictate`.
 pub const TEST_DICTATION_SECS: u64 = 5;
 
 pub fn run() {
@@ -31,6 +39,24 @@ pub fn run() {
                 .level_for("moli_core", log::LevelFilter::Debug)
                 .build(),
         )
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .invoke_handler(tauri::generate_handler![
+            commands::get_state,
+            commands::set_mode,
+            commands::set_restore_clipboard,
+            commands::set_autostart,
+            commands::set_overrides,
+            commands::record_hotkey,
+            commands::cancel_record_hotkey,
+            commands::reset_hotkey,
+            commands::open_accessibility_settings,
+            commands::open_microphone_settings,
+            commands::login,
+            commands::logout,
+        ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -40,7 +66,10 @@ pub fn run() {
                 app.package_info().version
             );
             app.manage(auth::Auth::load(&data_dir));
+            app.manage(settings::Settings::load(&data_dir));
+            overlay::create(app.handle())?;
             dictation::init(app.handle());
+            hotkey::init(app.handle());
             tray::create(app.handle())?;
             handle_args(app.handle(), &std::env::args().collect::<Vec<_>>());
             Ok(())
@@ -57,6 +86,12 @@ pub fn run() {
             api.prevent_exit();
         }
     });
+}
+
+/// Something the tray or the settings page shows changed.
+pub fn state_changed<R: Runtime>(app: &AppHandle<R>) {
+    tray::refresh(app);
+    let _ = app.emit_to("settings", "settings-changed", ());
 }
 
 /// `--login` opens the login window, `--logout` forgets the session,

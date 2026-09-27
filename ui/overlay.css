@@ -1,36 +1,116 @@
 :root {
   color-scheme: light dark;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --pill-bg: rgba(24, 24, 27, 0.9);
+  --pill-fg: #f5f5f7;
+  --muted: rgba(245, 245, 247, 0.6);
+  --rec: #ff453a;
+  --busy: #ffd60a;
+  --wait: #8e8e93;
+  --ok: #30d158;
 }
 html,
 body {
   margin: 0;
+  height: 100%;
   background: transparent;
   overflow: hidden;
+  cursor: default;
   user-select: none;
   -webkit-user-select: none;
+}
+body {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 8px;
+  box-sizing: border-box;
 }
 .pill {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 14px;
-  border-radius: 18px;
-  background: rgba(20, 20, 22, 0.86);
-  color: #f5f5f7;
+  gap: 10px;
+  max-width: calc(100vw - 16px);
+  min-width: 44px;
+  height: 40px;
+  padding: 0 16px 0 14px;
+  box-sizing: border-box;
+  border-radius: 20px;
+  background: var(--pill-bg);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  color: var(--pill-fg);
   font-size: 14px;
+  line-height: 40px;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+  transition:
+    opacity 120ms ease-out,
+    transform 120ms ease-out;
+}
+.pill.shown {
+  opacity: 1;
+  transform: none;
 }
 .dot {
+  position: relative;
   width: 10px;
   height: 10px;
   flex: none;
   border-radius: 50%;
-  background: #ff453a;
+  background: var(--wait);
+  transition: background 150ms;
 }
-.text {
+.halo {
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  background: currentColor;
+  color: var(--rec);
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity 80ms linear,
+    transform 80ms linear;
+}
+.pill[data-state="connecting"] .dot {
+  animation: breathe 1s ease-in-out infinite;
+}
+.pill[data-state="recording"] .dot {
+  background: var(--rec);
+}
+.pill[data-state="finalizing"] .dot,
+.pill[data-state="delivering"] .dot {
+  background: var(--busy);
+  animation: breathe 0.8s ease-in-out infinite;
+}
+.pill[data-state="message"] .dot {
+  background: var(--wait);
+}
+.pill[data-state="message"].error .dot {
+  background: var(--rec);
+}
+@keyframes breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+.box {
+  display: flex;
+  justify-content: flex-end; /* overflow goes to the left: the newest words stay visible */
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  direction: rtl; /* truncate on the left so the newest words stay visible */
-  text-overflow: ellipsis;
+}
+.box.clipped {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 36px);
+  mask-image: linear-gradient(to right, transparent, #000 36px);
+}
+.text {
+  flex: none;
+}
+.text:empty {
+  display: none;
+}
+.text.hint {
+  color: var(--muted);
 }

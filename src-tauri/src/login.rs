@@ -8,14 +8,15 @@
 
 use std::time::Duration;
 
-use moli_core::asr::params::{self, Overrides};
+use moli_core::asr::params;
 use moli_core::asr::{ConnectOptions, Verdict, verify};
 use moli_core::creds::{self, Credentials, StoreCookie};
 use tauri::webview::Cookie;
 use tauri::{AppHandle, Manager, Runtime, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::auth::Auth;
-use crate::tray;
+use crate::settings::Settings;
+use crate::state_changed;
 
 pub const LABEL: &str = "login";
 const LOGIN_URL: &str = "https://www.doubao.com/chat/";
@@ -122,7 +123,8 @@ async fn capture<R: Runtime>(app: AppHandle<R>) {
             continue;
         };
 
-        let verdict = verify(&ConnectOptions::new(&creds, &Overrides::new())).await;
+        let overrides = app.state::<Settings>().get().asr.param_overrides;
+        let verdict = verify(&ConnectOptions::new(&creds, &overrides)).await;
         match verdict {
             Verdict::Accepted => {}
             Verdict::Rejected => {
@@ -146,7 +148,7 @@ async fn capture<R: Runtime>(app: AppHandle<R>) {
             log::error!("could not save credentials: {e}");
             return;
         }
-        tray::refresh(&app);
+        state_changed(&app);
         let _ = window.destroy();
         return;
     }
@@ -230,5 +232,5 @@ pub async fn logout<R: Runtime>(app: AppHandle<R>) {
         }
         let _ = window.destroy();
     }
-    tray::refresh(&app);
+    state_changed(&app);
 }

@@ -7,8 +7,87 @@
   </head>
   <body>
     <main>
-      <h1>MoliWhisper</h1>
-      <p id="version"></p>
+      <div id="error" class="banner warn" hidden></div>
+      <section>
+        <h2>豆包账号</h2>
+        <div class="row">
+          <div class="grow">
+            <div id="auth-label" class="value">—</div>
+            <div class="note">语音识别使用豆包网页版的登录状态。</div>
+          </div>
+          <button id="login">登录…</button>
+          <button id="logout" class="subtle">退出登录</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>热键</h2>
+        <div class="row">
+          <div class="grow">
+            <div id="hotkey-label" class="value key">—</div>
+            <div id="hotkey-usage" class="note"></div>
+          </div>
+          <button id="record">更改…</button>
+          <button id="reset-hotkey" class="subtle">恢复默认</button>
+        </div>
+        <div id="recording" class="banner" hidden>
+          请按下新的热键：单独按一下某个修饰键（如右 Option），或按住修饰键再按一个键。按 ESC 取消。
+          <button id="cancel-record" class="subtle">取消</button>
+        </div>
+        <div id="hook-warning" class="banner warn" hidden></div>
+        <div class="row">
+          <span class="label">模式</span>
+          <div class="segmented" role="radiogroup">
+            <label><input type="radio" name="mode" value="toggle" /> 切换</label>
+            <label><input type="radio" name="mode" value="push_to_talk" /> 按住说话</label>
+          </div>
+        </div>
+        <div class="note">录音时按 ESC 取消，识别结果会自动粘贴到当前光标处。</div>
+      </section>
+
+      <section>
+        <h2>权限</h2>
+        <div class="row">
+          <span class="label">辅助功能</span>
+          <span id="ax-status" class="grow status"></span>
+          <button id="ax-open" class="subtle">打开系统设置</button>
+        </div>
+        <div class="note">用于监听热键和自动粘贴。</div>
+        <div class="row">
+          <span class="label">麦克风</span>
+          <span id="mic-status" class="grow status"></span>
+          <button id="mic-open" class="subtle">打开系统设置</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>通用</h2>
+        <label class="row check">
+          <span class="grow">登录时自动启动</span>
+          <input id="autostart" type="checkbox" />
+        </label>
+        <label class="row check">
+          <span class="grow">粘贴后恢复原来的剪贴板内容</span>
+          <input id="restore" type="checkbox" />
+        </label>
+      </section>
+
+      <section>
+        <details id="advanced">
+          <summary>高级</summary>
+          <p class="note">
+            豆包接口的 URL 参数覆盖（JSON 对象）。值为字符串时替换或新增该参数，为 null 时删除该参数。留空表示不覆盖。
+          </p>
+          <textarea id="overrides" spellcheck="false" rows="5" placeholder='{"pc_version": "3.38.5"}'></textarea>
+          <div class="row">
+            <span id="overrides-msg" class="grow note"></span>
+            <button id="overrides-save">保存</button>
+          </div>
+          <p class="note">配置文件：<code id="config-path"></code></p>
+        </details>
+      </section>
+
+      <footer id="version"></footer>
     </main>
     <script type="module" src="./settings.ts"></script>
   </body>
