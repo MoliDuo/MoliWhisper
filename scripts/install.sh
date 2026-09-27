@@ -6,9 +6,8 @@ cd "$(dirname "$0")/.."
 APP_NAME="Doubao Murmur"
 DEST="/Applications/$APP_NAME.app"
 
-if [ ! -d doubao-murmur.xcodeproj ]; then
-  xcodegen generate
-fi
+# Regenerate so project.yml changes (version, new files) are picked up
+xcodegen generate --quiet
 
 echo "🔨 Building Release..."
 xcodebuild -project doubao-murmur.xcodeproj \
