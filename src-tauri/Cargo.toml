@@ -1,0 +1,28 @@
+[package]
+name = "moliwhisper"
+description = "Hold-to-talk dictation with the Doubao web ASR"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "moliwhisper_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+moli-core = { path = "../crates/moli-core" }
+anyhow.workspace = true
+log = "0.4"
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = ["tray-icon", "macos-private-api", "image-png"] }
+tauri-plugin-log = "2"
+tauri-plugin-single-instance = "2"
+tokio.workspace = true
+# Routes moli-core's tracing events into the `log` records tauri-plugin-log writes.
+tracing = { workspace = true, features = ["log"] }

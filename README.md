@@ -68,41 +68,47 @@
 
 ## 开发
 
-Swift + SwiftUI，代码在 [`MoliWhisper/`](MoliWhisper)。
+> 正在用 Tauri 2 + Rust 重写 2.0（macOS + Windows）。旧的 Swift 版暂时放在 [`legacy/swift/`](legacy/swift)，新版能日常使用后删除。
+
+### 目录
+
+| 路径 | 内容 |
+|------|------|
+| [`crates/moli-core/`](crates/moli-core) | 纯 Rust 核心：豆包 ASR 客户端、会话逻辑、音频处理。不依赖 Tauri，任何平台都能 `cargo test` |
+| [`src-tauri/`](src-tauri) | Tauri 应用：托盘、窗口、平台相关代码（热键、粘贴、悬浮窗、权限） |
+| [`ui/`](ui) | 悬浮窗和设置页，Vite + 纯 TypeScript |
+| [`scripts/`](scripts) | 构建、安装、调试脚本 |
 
 ### 环境要求
 
-- macOS 13.0+
-- Xcode 15.0+
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen)（`brew install xcodegen`）
+- Rust stable、Node.js 22+、pnpm
+- macOS 13.0+（Xcode Command Line Tools）或 Windows 10/11（WebView2）
 
-### 构建与运行
+### 常用命令
 
 ```bash
-# 生成 Xcode 项目（新增/删除源文件后需重新生成）
-xcodegen generate
+# 构建带签名的 debug .app 并启动（测试热键、粘贴、麦克风用这个）
+./scripts/dev-app.sh
 
-# 构建
-./scripts/build.sh
-
-# 运行（构建后直接运行，日志输出到终端）
-./scripts/run.sh
-
-# 或者一步完成构建+运行
+# 只调界面：tauri dev（权限会记在终端名下）
 ./scripts/dev.sh
 
-# 构建 Release 版并安装到 /Applications
+# 构建 release 版，安装到 /Applications 并启动
 ./scripts/install.sh
+
+# 看日志 / 结束进程 / 重置系统授权
+./scripts/logs.sh
+./scripts/kill.sh
+./scripts/reset-tcc.sh
+
+# 核心库测试
+cargo test -p moli-core
+
+# 真实接口探针（凭证默认读旧版 app 保存的文件，或用 MOLI_CREDS 指定）
+./scripts/asr-probe.sh --wav crates/moli-core/fixtures/zh_short.wav --repeat 20
 ```
 
-### 发布
-
-推送 `v*` 格式的 tag 会触发 GitHub Actions（`release.yml`），构建 macOS `.app` 压缩包并附加到 Release：
-
-```bash
-git tag v1.6.0
-git push origin v1.6.0
-```
+本地构建会自动找钥匙串里的 Apple Development 证书签名，这样重新构建后辅助功能和麦克风授权不会丢。
 
 ## License
 
