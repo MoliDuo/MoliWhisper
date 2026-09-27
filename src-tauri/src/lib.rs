@@ -1,10 +1,14 @@
 mod auth;
+mod dictation;
 mod login;
 mod tray;
 mod windows;
 
 use tauri::{AppHandle, Manager, RunEvent, Runtime};
 use tauri_plugin_log::{Target, TargetKind, TimezoneStrategy};
+
+/// Length of the test dictation from the tray or `--dictate`.
+pub const TEST_DICTATION_SECS: u64 = 5;
 
 pub fn run() {
     let app = tauri::Builder::default()
@@ -36,6 +40,7 @@ pub fn run() {
                 app.package_info().version
             );
             app.manage(auth::Auth::load(&data_dir));
+            dictation::init(app.handle());
             tray::create(app.handle())?;
             handle_args(app.handle(), &std::env::args().collect::<Vec<_>>());
             Ok(())
@@ -54,8 +59,9 @@ pub fn run() {
     });
 }
 
-/// `--login` opens the login window, `--logout` forgets the session. Returns
-/// whether any argument was acted on.
+/// `--login` opens the login window, `--logout` forgets the session,
+/// `--dictate` records for a few seconds. Returns whether any argument was
+/// acted on.
 fn handle_args<R: Runtime>(app: &AppHandle<R>, argv: &[String]) -> bool {
     let mut handled = false;
     for arg in argv.iter().skip(1) {
@@ -64,6 +70,7 @@ fn handle_args<R: Runtime>(app: &AppHandle<R>, argv: &[String]) -> bool {
             "--logout" => {
                 tauri::async_runtime::spawn(login::logout(app.clone()));
             }
+            "--dictate" => dictation::dictate_for(app, TEST_DICTATION_SECS),
             _ => continue,
         }
         handled = true;

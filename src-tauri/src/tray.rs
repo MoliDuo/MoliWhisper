@@ -4,7 +4,7 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::auth::{Auth, AuthStatus};
-use crate::{login, windows};
+use crate::{TEST_DICTATION_SECS, dictation, login, windows};
 
 pub const TRAY_ID: &str = "main";
 
@@ -23,6 +23,7 @@ pub fn create<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             "logout" => {
                 tauri::async_runtime::spawn(login::logout(app.clone()));
             }
+            "dictate" => dictation::dictate_for(app, TEST_DICTATION_SECS),
             "settings" => windows::show_settings(app),
             "quit" => app.exit(0),
             _ => {}
@@ -76,6 +77,8 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         menu = menu.text("logout", "退出登录");
     }
     menu.separator()
+        .text("dictate", format!("听写 {TEST_DICTATION_SECS} 秒（测试）"))
+        .separator()
         .text("settings", "设置…")
         .separator()
         .text("quit", "退出 MoliWhisper")

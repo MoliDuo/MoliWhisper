@@ -4,5 +4,7 @@
 //! builds and tests on any platform with plain `cargo test`.
 
 pub mod asr;
+pub mod audio;
 pub mod creds;
+pub mod session;
 pub mod store;

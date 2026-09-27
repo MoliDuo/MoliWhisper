@@ -86,7 +86,6 @@ impl Auth {
     }
 
     /// The credentials to dictate with, if any.
-    #[allow(dead_code)] // used by the session controller (M3)
     pub fn credentials(&self) -> Option<Credentials> {
         self.current
             .lock()
@@ -103,7 +102,6 @@ impl Auth {
     }
 
     /// Marks the session refused by the server. The credentials stay.
-    #[allow(dead_code)] // used by the session controller (M3)
     pub fn mark_rejected(&self) {
         let mut current = self.current.lock().unwrap();
         let Some(stored) = current.as_mut() else {
