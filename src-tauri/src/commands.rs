@@ -1,16 +1,18 @@
 //! What the settings page can call.
 
 use moli_core::asr::params::Overrides;
+use moli_core::config::BackendKind;
 use moli_core::hotkey::{Hotkey, Mode};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::auth::{Auth, AuthStatus};
+use crate::dictation::{self, Dictation};
 use crate::hotkey::{self, HookStatus, HotkeyState};
 use crate::platform::{self, MicStatus};
 use crate::settings::Settings;
-use crate::{login, state_changed};
+use crate::{ime, login, state_changed};
 
 #[derive(Serialize)]
 pub struct HotkeyView {
@@ -36,6 +38,8 @@ pub struct StateView {
     recording_hotkey: bool,
     hook: HookStatus,
     restore_clipboard: bool,
+    backend: BackendKind,
+    organize: bool,
     autostart: bool,
     overrides: String,
     auth: AuthView,
@@ -64,6 +68,8 @@ pub fn get_state(app: AppHandle, settings: State<Settings>, hook: State<HotkeySt
         recording_hotkey: hook.0.is_recording(),
         hook: hook.0.status(),
         restore_clipboard: config.restore_clipboard,
+        backend: config.backend,
+        organize: config.organize,
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         overrides,
         auth: auth_view(app.state::<Auth>().status()),
@@ -116,6 +122,32 @@ pub fn set_restore_clipboard(
     enabled: bool,
 ) -> Result<(), String> {
     settings.update(|c| c.restore_clipboard = enabled)?;
+    state_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_backend(
+    app: AppHandle,
+    settings: State<Settings>,
+    backend: BackendKind,
+) -> Result<(), String> {
+    settings.update(|c| c.backend = backend)?;
+    app.state::<Dictation>()
+        .0
+        .set_timings(dictation::timings(backend));
+    ime::keep_warm(&app, backend == BackendKind::Ime);
+    state_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_organize(
+    app: AppHandle,
+    settings: State<Settings>,
+    enabled: bool,
+) -> Result<(), String> {
+    settings.update(|c| c.organize = enabled)?;
     state_changed(&app);
     Ok(())
 }

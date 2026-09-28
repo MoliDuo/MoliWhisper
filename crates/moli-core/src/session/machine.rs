@@ -22,8 +22,12 @@ pub struct Timings {
     pub connect_attempt: Duration,
     /// Give up connecting after this long, however many attempts are left.
     pub connect_deadline: Duration,
-    /// How long to wait for `finish` after sending ours.
+    /// How long to wait for `finish` after the recording stops, counted
+    /// again from each new text: on a slow network the audio is still on
+    /// its way and its text keeps coming.
     pub finalize: Duration,
+    /// Stop waiting for `finish` after this long, however much text comes.
+    pub finalize_cap: Duration,
     /// Recording stops by itself after this long.
     pub max_duration: Duration,
 }
@@ -35,7 +39,21 @@ impl Default for Timings {
             connect_attempt: Duration::from_millis(2500),
             connect_deadline: Duration::from_secs(5),
             finalize: Duration::from_secs(3),
+            finalize_cap: Duration::from_secs(60),
             max_duration: Duration::from_secs(5 * 60),
+        }
+    }
+}
+
+impl Timings {
+    /// For the Doubao IME backend: its handshake takes two more round trips
+    /// (2–4 s in all, now and then 6), and its text sometimes lags by seconds.
+    pub fn ime() -> Self {
+        Self {
+            connect_attempt: Duration::from_secs(6),
+            connect_deadline: Duration::from_secs(12),
+            finalize: Duration::from_secs(6),
+            ..Self::default()
         }
     }
 }
@@ -53,6 +71,7 @@ pub enum Phase {
 pub enum Timer {
     ConnectDeadline,
     Finalize,
+    FinalizeCap,
     MaxDuration,
 }
 
@@ -162,6 +181,9 @@ enum State {
     },
     Finalizing {
         sid: Sid,
+        /// `Finalize` timers still running. Each new text starts another;
+        /// they all run as long, so the last to go off is the newest.
+        waits: u32,
     },
     Delivering {
         sid: Sid,
@@ -190,6 +212,11 @@ impl Machine {
         &self.timings
     }
 
+    /// Takes effect with the next session's timers.
+    pub fn set_timings(&mut self, timings: Timings) {
+        self.timings = timings;
+    }
+
     pub fn phase(&self) -> Phase {
         match self.state {
             State::Idle => Phase::Idle,
@@ -206,7 +233,7 @@ impl Machine {
             State::Idle => None,
             State::Connecting { sid, .. }
             | State::Recording { sid }
-            | State::Finalizing { sid }
+            | State::Finalizing { sid, .. }
             | State::Delivering { sid, .. } => Some(sid),
         }
     }
@@ -319,13 +346,27 @@ impl Machine {
             // Finalizing
             (State::Finalizing { .. }, Event::ServerFinished { .. }) => self.deliver(false),
             (
-                State::Finalizing { .. },
+                State::Finalizing { waits, .. },
                 Event::Timeout {
                     timer: Timer::Finalize,
                     ..
                 },
             ) => {
+                *waits -= 1;
+                if *waits > 0 {
+                    return vec![];
+                }
                 tracing::warn!("no finish from the server in time; using the last result");
+                self.deliver(false)
+            }
+            (
+                State::Finalizing { .. },
+                Event::Timeout {
+                    timer: Timer::FinalizeCap,
+                    ..
+                },
+            ) => {
+                tracing::warn!("the server is still not done; using the last result");
                 self.deliver(false)
             }
             (State::Finalizing { .. }, Event::ConnectionLost { reason, .. }) => {
@@ -336,9 +377,21 @@ impl Machine {
             }
 
             // Any live session
-            (State::Recording { .. } | State::Finalizing { .. }, Event::Text { text, .. }) => {
+            (State::Recording { .. }, Event::Text { text, .. }) => {
                 self.text = text.clone();
                 vec![E::Text(text)]
+            }
+            (&mut State::Finalizing { sid, ref mut waits }, Event::Text { text, .. }) => {
+                *waits += 1;
+                self.text = text.clone();
+                vec![
+                    E::Text(text),
+                    E::Arm {
+                        sid,
+                        timer: Timer::Finalize,
+                        after: t.finalize,
+                    },
+                ]
             }
             (
                 State::Connecting { .. } | State::Recording { .. } | State::Finalizing { .. },
@@ -371,13 +424,18 @@ impl Machine {
     }
 
     fn finalize(&mut self, sid: Sid) -> Vec<Effect> {
-        self.state = State::Finalizing { sid };
+        self.state = State::Finalizing { sid, waits: 1 };
         vec![
             Effect::Finish { sid },
             Effect::Arm {
                 sid,
                 timer: Timer::Finalize,
                 after: self.timings.finalize,
+            },
+            Effect::Arm {
+                sid,
+                timer: Timer::FinalizeCap,
+                after: self.timings.finalize_cap,
             },
         ]
     }
@@ -480,6 +538,11 @@ mod tests {
                     sid,
                     timer: Timer::Finalize,
                     after: t.finalize
+                },
+                E::Arm {
+                    sid,
+                    timer: Timer::FinalizeCap,
+                    after: t.finalize_cap
                 }
             ]
         );
@@ -604,6 +667,55 @@ mod tests {
                 ]
             );
         }
+    }
+
+    #[test]
+    fn finalize_waits_while_text_keeps_coming() {
+        let mut m = machine();
+        let t = Timings::default();
+        let sid = recording(&mut m);
+        m.step(Event::Stop);
+        let finalize = |sid| Event::Timeout {
+            sid,
+            timer: Timer::Finalize,
+        };
+        assert_eq!(
+            m.step(text(sid, "慢")),
+            vec![
+                E::Text("慢".into()),
+                E::Arm {
+                    sid,
+                    timer: Timer::Finalize,
+                    after: t.finalize
+                }
+            ]
+        );
+        m.step(text(sid, "慢网"));
+        // The first two timers go off; the newest is still running.
+        assert_eq!(m.step(finalize(sid)), vec![]);
+        assert_eq!(m.step(finalize(sid)), vec![]);
+        assert_eq!(m.phase(), Phase::Finalizing);
+        assert_eq!(
+            m.step(finalize(sid)),
+            vec![
+                E::Disconnect,
+                E::Deliver {
+                    sid,
+                    text: "慢网".into()
+                }
+            ]
+        );
+
+        let mut m = machine();
+        let sid = recording(&mut m);
+        m.step(Event::Stop);
+        m.step(text(sid, "说个不停"));
+        let fx = m.step(Event::Timeout {
+            sid,
+            timer: Timer::FinalizeCap,
+        });
+        assert_eq!(fx[0], E::Disconnect);
+        assert_eq!(m.phase(), Phase::Delivering);
     }
 
     #[test]

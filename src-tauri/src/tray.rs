@@ -1,3 +1,4 @@
+use moli_core::config::BackendKind;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuBuilder, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -51,21 +52,11 @@ pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
 }
 
 fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
-    let status = app.state::<Auth>().status();
-    let (label, login_label, logged_in) = match status {
-        AuthStatus::LoggedOut => ("未登录".to_string(), Some("登录豆包…"), false),
-        AuthStatus::Active {
-            days_left: Some(d),
-            expiring: true,
-        } => (format!("登录将在 {d} 天后过期"), Some("重新登录…"), true),
-        AuthStatus::Active {
-            days_left: Some(d), ..
-        } => (format!("已登录（{d} 天后过期）"), None, true),
-        AuthStatus::Active {
-            days_left: None, ..
-        } => ("已登录".to_string(), None, true),
-        AuthStatus::Rejected => ("登录已失效".to_string(), Some("重新登录…"), true),
-        AuthStatus::Expired => ("登录已过期".to_string(), Some("重新登录…"), true),
+    let ime = app.state::<Settings>().get().backend == BackendKind::Ime;
+    let (label, login_label, logged_in) = if ime {
+        ("识别：豆包输入法（免登录）".to_string(), None, false)
+    } else {
+        web_status(app.state::<Auth>().status())
     };
 
     let mut menu = MenuBuilder::new(app).item(&MenuItem::with_id(
@@ -96,6 +87,25 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .separator()
         .text("quit", "退出 MoliWhisper")
         .build()
+}
+
+/// The status line, the login item (if any) and whether to offer logging out.
+fn web_status(status: AuthStatus) -> (String, Option<&'static str>, bool) {
+    match status {
+        AuthStatus::LoggedOut => ("未登录".to_string(), Some("登录豆包…"), false),
+        AuthStatus::Active {
+            days_left: Some(d),
+            expiring: true,
+        } => (format!("登录将在 {d} 天后过期"), Some("重新登录…"), true),
+        AuthStatus::Active {
+            days_left: Some(d), ..
+        } => (format!("已登录（{d} 天后过期）"), None, true),
+        AuthStatus::Active {
+            days_left: None, ..
+        } => ("已登录".to_string(), None, true),
+        AuthStatus::Rejected => ("登录已失效".to_string(), Some("重新登录…"), true),
+        AuthStatus::Expired => ("登录已过期".to_string(), Some("重新登录…"), true),
+    }
 }
 
 fn hotkey_line<R: Runtime>(app: &AppHandle<R>) -> String {

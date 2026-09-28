@@ -109,6 +109,18 @@ pub fn update<R: Runtime>(app: &AppHandle<R>, update: &Update) {
     }
 }
 
+/// The transcript is being rewritten before it is pasted.
+pub fn organizing<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window(LABEL) {
+        emit(
+            &window,
+            Msg::State {
+                state: "organizing",
+            },
+        );
+    }
+}
+
 fn message(outcome: &Outcome) -> Option<(&str, bool)> {
     Some(match outcome {
         Outcome::Done { partial: false } | Outcome::Cancelled => return None,

@@ -8,5 +8,6 @@ pub mod audio;
 pub mod config;
 pub mod creds;
 pub mod hotkey;
+pub mod ime;
 pub mod session;
 pub mod store;

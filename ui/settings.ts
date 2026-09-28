@@ -13,6 +13,8 @@ interface State {
   recording_hotkey: boolean;
   hook: HookStatus;
   restore_clipboard: boolean;
+  backend: "web" | "ime";
+  organize: boolean;
   autostart: boolean;
   overrides: string;
   auth: { label: string; logged_in: boolean; needs_login: boolean };
@@ -34,6 +36,11 @@ async function refresh() {
     return;
   }
 
+  for (const r of document.querySelectorAll<HTMLInputElement>('input[name="backend"]')) {
+    r.checked = r.value === s.backend;
+  }
+  $("account").hidden = s.backend !== "web";
+  $<HTMLInputElement>("organize").checked = s.organize;
   $("auth-label").textContent = s.auth.label;
   const login = $<HTMLButtonElement>("login");
   login.hidden = s.auth.logged_in && !s.auth.needs_login;
@@ -107,6 +114,11 @@ function showError(text: string) {
   $("error").textContent = text;
 }
 
+for (const r of document.querySelectorAll<HTMLInputElement>('input[name="backend"]')) {
+  r.onchange = () => r.checked && call("set_backend", { backend: r.value });
+}
+$<HTMLInputElement>("organize").onchange = (e) =>
+  call("set_organize", { enabled: (e.target as HTMLInputElement).checked });
 $("login").onclick = () => call("login");
 // No confirm(): a second click within a few seconds confirms.
 let logoutArmed: number | undefined;

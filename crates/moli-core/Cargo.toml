@@ -8,9 +8,13 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+base64 = "0.22"
 cpal = "0.18"
 dirs = "7"
+doubao-ime = { path = "../../vendor/doubao-ime-rs/doubao-ime", default-features = false }
 futures-util.workspace = true
+# The version the vendored crate uses, so nothing more is built.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
 rtrb = "0.4"
 rubato = "5"
 rustls.workspace = true
@@ -26,4 +30,5 @@ uuid.workspace = true
 [dev-dependencies]
 anyhow.workspace = true
 hound.workspace = true
+prost = "0.13"
 tracing-subscriber.workspace = true

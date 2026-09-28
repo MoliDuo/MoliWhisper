@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/moli-core", "src-tauri"]
+# Vendored as-is with its own workspace; only its `doubao-ime` crate is used.
+exclude = ["vendor/doubao-ime-rs"]
 
 [workspace.package]
 version = "2.0.0-rc.1"

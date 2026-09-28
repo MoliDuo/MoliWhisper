@@ -3,7 +3,10 @@ import { listen } from "@tauri-apps/api/event";
 type Msg =
   | { kind: "reset" }
   | { kind: "hide" }
-  | { kind: "state"; state: "connecting" | "recording" | "finalizing" | "delivering" }
+  | {
+      kind: "state";
+      state: "connecting" | "recording" | "finalizing" | "delivering" | "organizing";
+    }
   | { kind: "level"; value: number }
   | { kind: "text"; text: string }
   | { kind: "message"; text: string; error: boolean };
@@ -25,7 +28,10 @@ function render() {
   pill.dataset.state = state;
   let shown = transcript;
   let hint = false;
-  if (!shown) {
+  if (state === "organizing") {
+    shown = "整理中…";
+    hint = true;
+  } else if (!shown) {
     hint = true;
     if (state === "recording") shown = "正在听…";
     else if (state === "finalizing" || state === "delivering") shown = "识别中…";

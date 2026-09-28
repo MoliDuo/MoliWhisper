@@ -12,8 +12,9 @@ use tokio::task::AbortHandle;
 
 use super::Outcome;
 use super::machine::{Effect, Event, Machine, Phase, Sid, Timings};
-use crate::asr::client::{AsrSink, AsrStream, ConnectError, Handshake};
-use crate::asr::{AsrEvent, ConnectOptions, ServerMsg, connect, protocol};
+use crate::asr::backend::{Sink, Stream};
+use crate::asr::client::{ConnectError, Handshake};
+use crate::asr::{AsrEvent, Backend, ServerMsg, protocol};
 use crate::audio::{AudioEvent, AudioInput};
 
 /// How long a finished pipe may take to close the connection politely.
@@ -21,8 +22,9 @@ const CLOSE_GRACE: Duration = Duration::from_secs(2);
 
 /// What the controller needs from the app.
 pub trait Env: Send + Sync + 'static {
-    /// Where and how to connect, or `None` when nobody is logged in.
-    fn connect_options(&self) -> Option<ConnectOptions>;
+    /// Where and how to connect, or `None` when the chosen backend needs a
+    /// login and nobody is logged in.
+    fn backend(&self) -> Option<Backend>;
     fn start_audio(&self) -> AudioInput;
     /// Puts the text where the user wants it.
     fn deliver(&self, text: String) -> impl Future<Output = Result<(), String>> + Send + 'static;
@@ -45,6 +47,7 @@ pub enum Update {
 enum Msg {
     Toggle,
     Event(Event),
+    Timings(Timings),
 }
 
 /// Handle to the running controller. Cheap to clone.
@@ -63,6 +66,7 @@ impl Controller {
             tx: tx.clone(),
             rx,
             session: None,
+            next_timings: None,
         };
         (Self { tx }, actor.run())
     }
@@ -82,6 +86,11 @@ impl Controller {
     /// Starts when idle, stops when connecting or recording.
     pub fn toggle(&self) {
         self.send(Msg::Toggle);
+    }
+
+    /// Used from the next session on; the current one keeps its timings.
+    pub fn set_timings(&self, timings: Timings) {
+        self.send(Msg::Timings(timings));
     }
 
     fn send(&self, msg: Msg) {
@@ -104,6 +113,8 @@ struct Actor<E> {
     tx: mpsc::UnboundedSender<Msg>,
     rx: mpsc::UnboundedReceiver<Msg>,
     session: Option<Session>,
+    /// Set while a session runs; applied once it is over.
+    next_timings: Option<Timings>,
 }
 
 impl<E: Env> Actor<E> {
@@ -116,10 +127,19 @@ impl<E: Env> Actor<E> {
                     Phase::Finalizing | Phase::Delivering => continue,
                 },
                 Msg::Event(e) => e,
+                Msg::Timings(t) => {
+                    self.next_timings = Some(t);
+                    continue;
+                }
             };
+            if self.machine.phase() == Phase::Idle
+                && let Some(t) = self.next_timings.take()
+            {
+                self.machine.set_timings(t);
+            }
             if event == Event::Start
                 && self.machine.phase() == Phase::Idle
-                && self.env.connect_options().is_none()
+                && self.env.backend().is_none()
             {
                 tracing::info!("dictation requested but not logged in");
                 self.env.update(Update::Outcome(Outcome::NeedLogin));
@@ -160,10 +180,10 @@ impl<E: Env> Actor<E> {
             Effect::StopAudio => self.pipe(PipeCmd::StopAudio),
             Effect::Connect { sid, attempt } => {
                 tracing::info!(sid, attempt, "connecting");
-                match self.env.connect_options() {
-                    Some(mut opts) => {
-                        opts.timeout = self.machine.timings().connect_attempt;
-                        self.pipe(PipeCmd::Connect(Box::new(opts)));
+                match self.env.backend() {
+                    Some(backend) => {
+                        let timeout = self.machine.timings().connect_attempt;
+                        self.pipe(PipeCmd::Connect(Box::new(backend), timeout));
                     }
                     None => self.event_later(Event::ConnectFailed {
                         sid,
@@ -230,14 +250,14 @@ impl<E: Env> Actor<E> {
 }
 
 enum PipeCmd {
-    Connect(Box<ConnectOptions>),
+    Connect(Box<Backend>, Duration),
     StopAudio,
     /// Send the finish frame once the microphone is done.
     Finish,
 }
 
 type Connecting =
-    Pin<Box<dyn Future<Output = Result<(AsrSink, AsrStream, Handshake), ConnectError>> + Send>>;
+    Pin<Box<dyn Future<Output = Result<(Sink, Stream, Handshake), ConnectError>> + Send>>;
 
 /// Moves audio from the microphone to the server and server messages back
 /// to the actor, for one session.
@@ -255,8 +275,8 @@ impl<E: Env> Pipe<E> {
         // Audio captured before the connection is up.
         let mut pending: Vec<Vec<u8>> = Vec::new();
         let mut connecting: Option<Connecting> = None;
-        let mut sink: Option<AsrSink> = None;
-        let mut stream: Option<AsrStream> = None;
+        let mut sink: Option<Sink> = None;
+        let mut stream: Option<Stream> = None;
         let mut audio_done = false;
         let mut finish_requested = false;
         let mut finish_sent = false;
@@ -266,8 +286,8 @@ impl<E: Env> Pipe<E> {
         loop {
             tokio::select! {
                 cmd = self.cmds.recv() => match cmd {
-                    Some(PipeCmd::Connect(opts)) => {
-                        connecting = Some(Box::pin(async move { connect(&opts).await }));
+                    Some(PipeCmd::Connect(backend, timeout)) => {
+                        connecting = Some(Box::pin(async move { backend.connect(timeout).await }));
                     }
                     Some(PipeCmd::StopAudio) => self.audio.stop(),
                     Some(PipeCmd::Finish) => finish_requested = true,

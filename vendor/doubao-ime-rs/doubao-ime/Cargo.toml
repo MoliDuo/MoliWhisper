@@ -1,0 +1,40 @@
+[package]
+name = "doubao-ime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description.workspace = true
+
+[features]
+default = ["blocking"]
+## 同步（阻塞）API，内部持有 tokio 运行时；FFI 层依赖它
+blocking = []
+
+[dependencies]
+tokio.workspace = true
+serde_json.workspace = true
+serde = { version = "1", features = ["derive"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots", "http2", "stream"] }
+prost = "0.13"
+p256 = { version = "0.13", features = ["ecdsa", "ecdh"] }
+chacha20 = "0.9"
+base64 = "0.22"
+rand = "0.8"
+thiserror = "1"
+tracing = "0.1"
+hound = "3.5"
+x509-parser = "0.16"
+regex = "1"
+url = "2"
+async-stream = "0.3"
+bytes = "1"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+hound = "3.5"
+prost = "0.13"
+futures-util = "0.3"

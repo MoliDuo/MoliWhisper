@@ -2,6 +2,7 @@ mod auth;
 mod commands;
 mod dictation;
 mod hotkey;
+mod ime;
 mod login;
 mod overlay;
 mod platform;
@@ -11,6 +12,7 @@ mod test_audio;
 mod tray;
 mod windows;
 
+use moli_core::config::BackendKind;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_log::{Target, TargetKind, TimezoneStrategy};
@@ -47,6 +49,8 @@ pub fn run() {
             commands::get_state,
             commands::set_mode,
             commands::set_restore_clipboard,
+            commands::set_backend,
+            commands::set_organize,
             commands::set_autostart,
             commands::set_overrides,
             commands::record_hotkey,
@@ -67,6 +71,9 @@ pub fn run() {
             );
             app.manage(auth::Auth::load(&data_dir));
             app.manage(settings::Settings::load(&data_dir));
+            ime::init(app.handle())?;
+            let backend = app.state::<settings::Settings>().get().backend;
+            ime::keep_warm(app.handle(), backend == BackendKind::Ime);
             overlay::create(app.handle())?;
             dictation::init(app.handle());
             hotkey::init(app.handle());

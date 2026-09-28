@@ -24,7 +24,12 @@ pub struct Config {
     pub mode: Mode,
     /// Put the previous clipboard back after pasting.
     pub restore_clipboard: bool,
+    /// Which recognition service to use.
+    pub backend: BackendKind,
+    /// Rewrite the transcript as written text before pasting.
+    pub organize: bool,
     pub asr: AsrConfig,
+    pub ime: ImeConfig,
 }
 
 impl Default for Config {
@@ -34,7 +39,10 @@ impl Default for Config {
             hotkey: Hotkey::default(),
             mode: Mode::default(),
             restore_clipboard: true,
+            backend: BackendKind::default(),
+            organize: false,
             asr: AsrConfig::default(),
+            ime: ImeConfig::default(),
         }
     }
 }
@@ -44,6 +52,23 @@ impl Default for Config {
 pub struct AsrConfig {
     /// Merged over the built-in URL parameters; `null` removes one.
     pub param_overrides: Overrides,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackendKind {
+    /// The Doubao web ASR, with the login from the Doubao website.
+    #[default]
+    Web,
+    /// The Doubao input method's ASR; anonymous, no login.
+    Ime,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImeConfig {
+    /// The device id presented to the IME service, made on first use.
+    pub device_id: Option<String>,
 }
 
 pub struct ConfigStore {
@@ -122,6 +147,11 @@ mod tests {
             },
             mode: Mode::PushToTalk,
             restore_clipboard: false,
+            backend: BackendKind::Ime,
+            organize: true,
+            ime: ImeConfig {
+                device_id: Some("1234567890123456".into()),
+            },
             ..Config::default()
         };
         c.asr
@@ -147,6 +177,8 @@ mod tests {
             }
         );
         assert!(c.restore_clipboard);
+        assert_eq!(c.backend, BackendKind::Web);
+        assert!(!c.organize);
         let _ = std::fs::remove_dir_all(dir);
     }
 

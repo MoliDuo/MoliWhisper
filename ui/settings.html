@@ -9,15 +9,35 @@
     <main>
       <div id="error" class="banner warn" hidden></div>
       <section>
-        <h2>豆包账号</h2>
-        <div class="row">
-          <div class="grow">
-            <div id="auth-label" class="value">—</div>
-            <div class="note">语音识别使用豆包网页版的登录状态。</div>
-          </div>
+        <h2>识别方式</h2>
+        <div class="choices" role="radiogroup">
+          <label class="choice">
+            <input type="radio" name="backend" value="web" />
+            <span>
+              豆包网页版
+              <span class="note">使用豆包网页版的登录状态。</span>
+            </span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="backend" value="ime" />
+            <span>
+              豆包输入法
+              <span class="note">免登录，使用豆包输入法的非官方接口，可能随时失效。</span>
+            </span>
+          </label>
+        </div>
+        <div id="account" class="row">
+          <div id="auth-label" class="grow value">—</div>
           <button id="login">登录…</button>
           <button id="logout" class="subtle">退出登录</button>
         </div>
+        <label class="row check">
+          <span class="grow">
+            自动整理（口语 → 书面语）
+            <span class="note">识别完先去掉口头语、理顺语句再粘贴；整理失败或超过 5 秒时粘贴原文。</span>
+          </span>
+          <input id="organize" type="checkbox" />
+        </label>
       </section>
 
       <section>

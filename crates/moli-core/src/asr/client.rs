@@ -150,7 +150,7 @@ async fn handshake(opts: &ConnectOptions) -> Result<(Ws, Vec<String>), ConnectEr
     }
 }
 
-fn install_crypto_provider() {
+pub(crate) fn install_crypto_provider() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         // Fails only if another provider is already installed, which is fine.
@@ -160,7 +160,7 @@ fn install_crypto_provider() {
 
 /// Happy-eyeballs TCP connect: try addresses alternating between IPv6 and
 /// IPv4, starting a new attempt every 250 ms or as soon as one fails.
-async fn tcp_connect(host: &str, port: u16) -> io::Result<TcpStream> {
+pub(crate) async fn tcp_connect(host: &str, port: u16) -> io::Result<TcpStream> {
     let t = Instant::now();
     let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port)).await?.collect();
     tracing::debug!(?addrs, ms = t.elapsed().as_millis(), "resolved");
@@ -210,8 +210,12 @@ fn interleave_families(addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("send failed: {0}")]
-pub struct SendError(#[from] tungstenite::Error);
+pub enum SendError {
+    #[error("send failed: {0}")]
+    Ws(#[from] tungstenite::Error),
+    #[error("send failed: the session is over")]
+    Closed,
+}
 
 pub struct AsrSink {
     inner: SplitSink<Ws, Message>,

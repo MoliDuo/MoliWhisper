@@ -124,6 +124,28 @@ button:disabled {
 .banner[hidden] {
   display: none;
 }
+.row[hidden] {
+  display: none;
+}
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: default;
+}
+.choice input {
+  margin-top: 2px;
+}
+.choice .note,
+.check .note {
+  display: block;
+}
 .segmented {
   display: inline-flex;
   gap: 14px;

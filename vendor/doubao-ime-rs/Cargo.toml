@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["doubao-ime", "doubao-ime-cli", "doubao-ime-ffi"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+publish = false
+description = "豆包输入法语音识别与文字整理的非官方 Rust 客户端"
+
+[workspace.dependencies]
+doubao-ime = { path = "doubao-ime" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "fs"] }
+serde_json = "1"
+
+[profile.release]
+lto = "thin"

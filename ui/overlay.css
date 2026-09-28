@@ -79,7 +79,8 @@ body {
   background: var(--rec);
 }
 .pill[data-state="finalizing"] .dot,
-.pill[data-state="delivering"] .dot {
+.pill[data-state="delivering"] .dot,
+.pill[data-state="organizing"] .dot {
   background: var(--busy);
   animation: breathe 0.8s ease-in-out infinite;
 }
