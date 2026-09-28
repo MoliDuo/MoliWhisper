@@ -30,7 +30,15 @@
 
 ### 安装
 
-要求 macOS 13.0+。从源码构建并安装到「应用程序」文件夹：
+要求 macOS 13.0+（Apple Silicon）。master 每次推送、CI 通过后都会发布一个开发版（`vX.Y.Z-dev.N`，保留最近 10 个），正式版另外打标签发布，都在 [Releases](https://github.com/MoliDuo/MoliWhisper/releases)。
+
+安装最新的一个（开发版也算）到「应用程序」文件夹，需要 [gh](https://cli.github.com)：
+
+```bash
+./scripts/update.sh
+```
+
+用 `gh` 下载不会被 Gatekeeper 拦；从网页下载 dmg 的话，首次打开的办法见发布说明。也可以从源码构建安装：
 
 ```bash
 ./scripts/install.sh
@@ -96,6 +104,12 @@
 # 构建 release 版，安装到 /Applications 并启动
 ./scripts/install.sh
 
+# 从 GitHub 装最新发布的版本（或指定标签）
+./scripts/update.sh [v2.0.0]
+
+# 发正式版：改版本号、提交、打标签并推送，CI 构建发布
+./scripts/release.sh 2.0.1
+
 # 看日志 / 结束进程 / 重置系统授权
 ./scripts/logs.sh
 ./scripts/kill.sh
@@ -108,7 +122,7 @@ cargo test -p moli-core
 ./scripts/asr-probe.sh --wav crates/moli-core/fixtures/zh_short.wav --repeat 20
 ```
 
-本地构建会自动找钥匙串里的 Apple Development 证书签名，这样重新构建后辅助功能和麦克风授权不会丢。
+本地构建会自动找钥匙串里的 Apple Development 证书签名，这样重新构建后辅助功能和麦克风授权不会丢。CI 用同一张证书（仓库 Secrets 里的 `APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD`）签发布包，所以本地构建和下载的版本共用同一份授权。
 
 ## License
 

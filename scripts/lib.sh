@@ -3,6 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+REPO="MoliDuo/MoliWhisper"
 APP_NAME="MoliWhisper"
 BUNDLE_ID="com.moliduo.moliwhisper"
 # Lowercase on purpose: it never matches the legacy Swift app's "MoliWhisper" process.

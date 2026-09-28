@@ -24,12 +24,7 @@ if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   exit 1
 fi
 
-# Cargo.toml: only the version under [workspace.package].
-sed -i '' "/^\[workspace.package\]/,/^\[/s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-# The top-level "version" is the first one in both files.
-VERSION="$VERSION" perl -0pi -e 's/"version": "[^"]*"/"version": "$ENV{VERSION}"/' \
-  src-tauri/tauri.conf.json package.json
-cargo update --workspace --quiet
+"$ROOT/scripts/set-version.sh" "$VERSION"
 
 git add Cargo.toml Cargo.lock src-tauri/tauri.conf.json package.json
 if git diff --cached --quiet; then
