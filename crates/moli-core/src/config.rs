@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::asr::params::Overrides;
+use crate::doubao::web::params::Overrides;
 use crate::hotkey::{Hotkey, Mode};
 use crate::store::write_atomic;
 

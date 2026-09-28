@@ -12,10 +12,9 @@ use tokio::task::AbortHandle;
 
 use super::Outcome;
 use super::machine::{Effect, Event, Machine, Phase, Sid, Timings};
-use crate::asr::backend::{Sink, Stream};
-use crate::asr::client::{ConnectError, Handshake};
-use crate::asr::{AsrEvent, Backend, ServerMsg, protocol};
+use crate::asr::{AsrEvent, Backend, ConnectError, Handshake, ServerMsg, Sink, Stream};
 use crate::audio::{AudioEvent, AudioInput};
+use crate::doubao::web::protocol;
 
 /// How long a finished pipe may take to close the connection politely.
 const CLOSE_GRACE: Duration = Duration::from_secs(2);

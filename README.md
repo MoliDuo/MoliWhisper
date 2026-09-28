@@ -74,7 +74,7 @@
 
 | 路径 | 内容 |
 |------|------|
-| [`crates/moli-core/`](crates/moli-core) | 纯 Rust 核心：豆包 ASR 客户端、会话逻辑、音频处理。不依赖 Tauri，任何平台都能 `cargo test` |
+| [`crates/moli-core/`](crates/moli-core) | 纯 Rust 核心：豆包网页版与输入法两套 ASR 客户端、会话逻辑、音频处理。不依赖 Tauri，任何平台都能 `cargo test` |
 | [`src-tauri/`](src-tauri) | Tauri 应用：托盘、窗口、平台相关代码（热键、粘贴、悬浮窗、权限） |
 | [`ui/`](ui) | 悬浮窗和设置页，Vite + 纯 TypeScript |
 | [`scripts/`](scripts) | 构建、安装、调试脚本 |

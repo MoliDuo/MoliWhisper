@@ -3,7 +3,7 @@
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Fft, FixedSync, Resampler};
 
-use crate::asr::protocol::SAMPLE_RATE;
+use crate::asr::SAMPLE_RATE;
 
 /// Length of one chunk sent to the server. The server does not care; this
 /// sets how often the overlay's level updates.

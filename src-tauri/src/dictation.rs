@@ -4,9 +4,10 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use moli_core::asr::{Backend, ConnectOptions};
+use moli_core::asr::Backend;
 use moli_core::audio::{self, AudioInput};
 use moli_core::config::BackendKind;
+use moli_core::doubao::web::ConnectOptions;
 use moli_core::session::{Controller, Env, Outcome, Phase, Timings, Update};
 use tauri::{AppHandle, Manager, Runtime};
 

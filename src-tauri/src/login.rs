@@ -8,9 +8,9 @@
 
 use std::time::Duration;
 
-use moli_core::asr::params;
-use moli_core::asr::{ConnectOptions, Verdict, verify};
-use moli_core::creds::{self, Credentials, StoreCookie};
+use moli_core::doubao::web::{
+    ConnectOptions, Credentials, StoreCookie, Verdict, cookies_for_url, params, verify,
+};
 use tauri::webview::Cookie;
 use tauri::{AppHandle, Manager, Runtime, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
@@ -178,11 +178,11 @@ fn build_credentials(
         .find(|c| c.name() == MARKER)
         .and_then(|c| c.value().split_once('|'))
         .map(|(d, w)| (d.to_string(), w.to_string()))?;
-    let page = creds::cookies_for_url(page_url, cookies.iter().map(as_store));
+    let page = cookies_for_url(page_url, cookies.iter().map(as_store));
     let creds = Credentials {
         device_id,
         web_id,
-        cookies: creds::cookies_for_url(ws_url, cookies.iter().map(as_store)),
+        cookies: cookies_for_url(ws_url, cookies.iter().map(as_store)),
         language: page.get("i18next").cloned(),
         region: page.get("flow_user_country").cloned(),
     };

@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use moli_core::ime::ImeClient;
+use moli_core::doubao::ime::{IME_VERSION_CODE, ImeClient};
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::settings::Settings;
@@ -25,7 +25,7 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
             id
         }
     };
-    let client = ImeClient::new(device_id)?;
+    let client = ImeClient::new(device_id);
     // The service refused the old id and the client moved on: keep the new one.
     let handle = app.clone();
     client.on_new_device_id(move |id| {
@@ -38,11 +38,13 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         }
     });
     tauri::async_runtime::spawn(client.clone().warm());
-    tauri::async_runtime::spawn(async {
-        if let Some((name, code)) = moli_core::ime::newer_ime_version(VERSION_CHECK_TIMEOUT).await {
+    let checker = client.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Some(release) = checker.newer_version(VERSION_CHECK_TIMEOUT).await {
             log::warn!(
-                "Doubao IME {name} ({code}) is out; this app still presents itself as {}",
-                moli_core::ime::IME_VERSION_CODE
+                "Doubao IME {} ({}) is out; this app still presents itself as {IME_VERSION_CODE}",
+                release.name,
+                release.code
             );
         }
     });

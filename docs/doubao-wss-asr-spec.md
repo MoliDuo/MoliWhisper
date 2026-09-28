@@ -29,7 +29,7 @@
 
 - **`Origin: https://www.doubao.com` 必须带**：不带时每次都是 HTTP 403。
 - `User-Agent` 可以不带。
-- 查询参数服务端不校验版本：3.38.5 那套和 3.12.3 那套（没有 `doubao_*` 参数）都能用。MoliWhisper 当前用的参数表见 `crates/moli-core/src/asr/params.rs`。
+- 查询参数服务端不校验版本：3.38.5 那套和 3.12.3 那套（没有 `doubao_*` 参数）都能用。MoliWhisper 当前用的参数表见 `crates/moli-core/src/doubao/web/params.rs`。
 - 一个 Cookie 都不带时，握手返回 **HTTP 200**（不是 101，大概是 WAF 页面），应当按「请求被拦截」处理，不是认证失败。
 - 部分边缘节点（遇到过 `71.18.x`）TCP 能连上，TLS 却卡住不动，curl 也一样。客户端需要给每次连接尝试单独设 2–2.5 s 超时，然后重试。同一时段内连接耗时在 0.3–2 s 之间波动。
 

@@ -17,9 +17,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
-use moli_core::asr::params::Overrides;
-use moli_core::asr::{AsrEvent, ConnectOptions, ServerMsg, connect, verify};
-use moli_core::creds::Credentials;
+use moli_core::asr::{AsrEvent, ServerMsg};
+use moli_core::doubao::web::params::Overrides;
+use moli_core::doubao::web::{ConnectOptions, Credentials, connect, verify};
 use moli_core::store::CredStore;
 use tokio::sync::mpsc;
 

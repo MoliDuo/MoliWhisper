@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use moli_core::asr::{AsrEvent, ServerMsg};
-use moli_core::ime::ImeClient;
+use moli_core::doubao::ime::{IME_VERSION_CODE, ImeClient};
 
 const CHUNK_BYTES: usize = 1600;
 
@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
 
     // IME_DEVICE_ID=3141592653589793 is one the service cannot route (as of 2026-09).
     let device_id = std::env::var("IME_DEVICE_ID").unwrap_or_else(|_| ImeClient::new_device_id());
-    let client = ImeClient::new(device_id).map_err(anyhow::Error::msg)?;
+    let client = ImeClient::new(device_id);
     if std::env::var_os("IME_WARM").is_some() {
         let t = Instant::now();
         client.set_keep_warm(true);
@@ -60,9 +60,9 @@ async fn main() -> anyhow::Result<()> {
         }
         println!("warm after {} ms", t.elapsed().as_millis());
     }
-    match moli_core::ime::newer_ime_version(Duration::from_secs(10)).await {
-        Some((name, code)) => println!("newer IME out: {name} ({code})"),
-        None => println!("no IME newer than {}", moli_core::ime::IME_VERSION_CODE),
+    match client.newer_version(Duration::from_secs(10)).await {
+        Some(release) => println!("newer IME out: {} ({})", release.name, release.code),
+        None => println!("no IME newer than {IME_VERSION_CODE}"),
     }
     // IME_PACE_MS=0 sends the recording as fast as the network allows.
     let pace = Duration::from_millis(std::env::var("IME_PACE_MS").map_or(Ok(50), |s| s.parse())?);

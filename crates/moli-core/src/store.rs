@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::creds::Credentials;
+use crate::doubao::web::Credentials;
 
 /// App data directory name; matches the bundle identifier.
 pub const APP_ID: &str = "com.moliduo.moliwhisper";

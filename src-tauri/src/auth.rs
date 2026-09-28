@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use moli_core::creds::Credentials;
+use moli_core::doubao::web::Credentials;
 use moli_core::store::{self, CredStore, StoreError, StoredCredentials};
 
 /// Warn in the tray when the session has less than this left.

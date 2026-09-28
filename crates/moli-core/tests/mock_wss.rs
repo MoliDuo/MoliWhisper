@@ -8,8 +8,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use moli_core::asr::{Backend, ConnectOptions};
+use moli_core::asr::Backend;
 use moli_core::audio::{AudioEvent, AudioInput, Chunk};
+use moli_core::doubao::web::ConnectOptions;
 use moli_core::session::{Controller, Env, Outcome, Phase, Timings, Update};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
@@ -492,10 +493,8 @@ async fn microphone_failure_ends_the_session() {
 
 mod ime {
     use super::*;
-    use moli_core::ime::ImeClient;
-    use moli_core::ime::doubao_ime::proto::{WebSocketRequest, WebSocketResponse, event};
-    use moli_core::ime::doubao_ime::{ClientConfig, Endpoints};
-    use prost::Message as _;
+    use moli_core::doubao::ime::wire::{Request, Response, event};
+    use moli_core::doubao::ime::{Endpoints, ImeClient};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[derive(Debug, Clone, Copy, PartialEq)]
@@ -561,31 +560,26 @@ mod ime {
         });
 
         let base = format!("http://{http_addr}");
-        let config = ClientConfig {
-            endpoints: Endpoints {
-                ttkitchen: format!("{base}/service/settings/v3/"),
-                sami_config: format!("{base}/api/v1/user/get_config"),
-                asr_ws: format!("ws://{ws_addr}/ocean/api/v1/ws"),
-                organize: format!("{base}/api/v2/ai/text_organization"),
-                ..Endpoints::default()
-            },
-            http_timeout_secs: 2.0,
-            device_id: Some("1234567890123456".into()),
-            user_agent: None,
+        let endpoints = Endpoints {
+            settings: format!("{base}/service/settings/v3/"),
+            sami_config: format!("{base}/api/v1/user/get_config"),
+            asr_ws: format!("ws://{ws_addr}/ocean/api/v1/ws"),
+            organize: format!("{base}/api/v2/ai/text_organization"),
+            ..Endpoints::default()
         };
         ImeMock {
-            client: ImeClient::from_config(config).unwrap(),
+            client: ImeClient::with_endpoints("1234567890123456", endpoints),
             state,
         }
     }
 
     fn frame(event: &str) -> Message {
         Message::binary(
-            WebSocketResponse {
+            Response {
                 event: event.into(),
                 ..Default::default()
             }
-            .encode_to_vec(),
+            .to_bytes(),
         )
     }
 
@@ -595,24 +589,24 @@ mod ime {
 
     fn failure_with(event: &str, code: i64, text: &str) -> Message {
         Message::binary(
-            WebSocketResponse {
+            Response {
                 event: event.into(),
                 status_code: code,
                 status_text: text.into(),
                 ..Default::default()
             }
-            .encode_to_vec(),
+            .to_bytes(),
         )
     }
 
     fn timed_segment(index: i64, start: f64, text: &str) -> Message {
         let result = serde_json::json!({"text": text, "index": index, "start_time": start});
         Message::binary(
-            WebSocketResponse {
+            Response {
                 payload: serde_json::json!({"results": [result]}).to_string(),
                 ..Default::default()
             }
-            .encode_to_vec(),
+            .to_bytes(),
         )
     }
 
@@ -626,11 +620,11 @@ mod ime {
             result["index"] = i.into();
         }
         Message::binary(
-            WebSocketResponse {
+            Response {
                 payload: serde_json::json!({"results": [result]}).to_string(),
                 ..Default::default()
             }
-            .encode_to_vec(),
+            .to_bytes(),
         )
     }
 
@@ -642,7 +636,7 @@ mod ime {
         let mut sent_partial = false;
         while let Some(Ok(msg)) = ws.next().await {
             let Message::Binary(data) = msg else { continue };
-            let req = WebSocketRequest::decode(&data[..]).unwrap();
+            let req = Request::from_bytes(&data).unwrap();
             let reply = match req.event.as_str() {
                 event::START_TASK if behave == ImeBehave::FailStart => {
                     Some(failure(event::TASK_FAILED))
@@ -986,14 +980,11 @@ mod ime {
             .local_addr()
             .unwrap()
             .port();
-        let config = ClientConfig {
-            endpoints: Endpoints {
-                organize: format!("http://127.0.0.1:{port}/api/v2/ai/text_organization"),
-                ..Endpoints::default()
-            },
-            ..ClientConfig::default()
+        let endpoints = Endpoints {
+            organize: format!("http://127.0.0.1:{port}/api/v2/ai/text_organization"),
+            ..Endpoints::default()
         };
-        let client = ImeClient::from_config(config).unwrap();
+        let client = ImeClient::with_endpoints(ImeClient::new_device_id(), endpoints);
         let out = client.organize("嗯那个", Duration::from_secs(2)).await;
         assert_eq!(out, None);
     }

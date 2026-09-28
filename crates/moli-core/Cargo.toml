@@ -1,6 +1,6 @@
 [package]
 name = "moli-core"
-description = "Platform-independent core of MoliWhisper: Doubao ASR client, session logic, audio DSP."
+description = "Platform-independent core of MoliWhisper: Doubao web and IME clients, session logic, audio DSP."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,9 +11,8 @@ publish = false
 base64 = "0.22"
 cpal = "0.18"
 dirs = "7"
-doubao-ime = { path = "../../vendor/doubao-ime-rs/doubao-ime", default-features = false }
 futures-util.workspace = true
-# The version the vendored crate uses, so nothing more is built.
+prost = "0.13"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
 rtrb = "0.4"
 rubato = "5"
@@ -30,5 +29,4 @@ uuid.workspace = true
 [dev-dependencies]
 anyhow.workspace = true
 hound.workspace = true
-prost = "0.13"
 tracing-subscriber.workspace = true

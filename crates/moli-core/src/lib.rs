@@ -6,8 +6,7 @@
 pub mod asr;
 pub mod audio;
 pub mod config;
-pub mod creds;
+pub mod doubao;
 pub mod hotkey;
-pub mod ime;
 pub mod session;
 pub mod store;

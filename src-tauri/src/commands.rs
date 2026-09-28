@@ -1,7 +1,7 @@
 //! What the settings page can call.
 
-use moli_core::asr::params::Overrides;
 use moli_core::config::BackendKind;
+use moli_core::doubao::web::params::Overrides;
 use moli_core::hotkey::{Hotkey, Mode};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
