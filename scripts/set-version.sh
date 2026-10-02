@@ -1,7 +1,7 @@
 #!/bin/bash
 # Set the app version in Cargo.toml, tauri.conf.json and package.json.
-# Used by release.sh and by the per-push dev builds in CI.
-#   scripts/set-version.sh 2.0.1
+# CI sets the build version with it; bump X.Y here by hand, e.g.
+#   scripts/set-version.sh 2.1.0
 source "$(dirname "$0")/lib.sh"
 
 VERSION="${1:-}"

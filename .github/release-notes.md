@@ -1,7 +1,8 @@
 ## 下载
 
 - **macOS**（Apple Silicon，13.0+）：`MoliWhisper_*_aarch64.dmg`
-- **Windows**（x64）：`MoliWhisper_*_x64-setup.exe`，安装到当前用户，不需要管理员权限
+
+已经装了的不用下载：应用会自己检查并提示更新，也可以在菜单栏点「检查更新…」。`MoliWhisper.app.tar.gz` 和 `latest.json` 是给自动更新用的。
 
 ## macOS 首次打开
 
@@ -13,7 +14,3 @@
 用仓库里的 `scripts/update.sh` 安装（经 `gh` 下载）不会被拦。
 
 然后按提示授予**辅助功能**（全局热键和自动粘贴）和**麦克风**权限。每个版本的签名相同，升级后授权保留。
-
-## Windows
-
-目前只有登录和托盘；全局热键和自动粘贴还在开发中。

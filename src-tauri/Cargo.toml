@@ -27,6 +27,8 @@ tauri-plugin-single-instance = "2"
 tokio.workspace = true
 # Routes moli-core's tracing events into the `log` records tauri-plugin-log writes.
 tracing = { workspace = true, features = ["log"] }
+tauri-plugin-updater = "2.13.0"
+tauri-plugin-dialog = "2.8.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"

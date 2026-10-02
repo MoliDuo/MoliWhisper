@@ -10,6 +10,7 @@ mod settings;
 #[cfg(debug_assertions)]
 mod test_audio;
 mod tray;
+mod updater;
 mod windows;
 
 use moli_core::config::BackendKind;
@@ -45,6 +46,8 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::set_mode,
@@ -64,6 +67,7 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            commands::check_for_updates,
             let data_dir = app.path().app_data_dir()?;
             log::info!(
                 "MoliWhisper {} started, data dir {data_dir:?}",
@@ -75,6 +79,7 @@ pub fn run() {
             let backend = app.state::<settings::Settings>().get().backend;
             ime::keep_warm(app.handle(), backend == BackendKind::Ime);
             overlay::create(app.handle())?;
+            updater::init(app.handle());
             dictation::init(app.handle());
             hotkey::init(app.handle());
             tray::create(app.handle())?;
@@ -102,8 +107,8 @@ pub fn state_changed<R: Runtime>(app: &AppHandle<R>) {
 }
 
 /// `--login` opens the login window, `--logout` forgets the session,
-/// `--dictate` records for a few seconds. Returns whether any argument was
-/// acted on.
+/// `--dictate` records for a few seconds, `--check-update` checks for a new
+/// version. Returns whether any argument was acted on.
 fn handle_args<R: Runtime>(app: &AppHandle<R>, argv: &[String]) -> bool {
     let mut handled = false;
     for arg in argv.iter().skip(1) {
@@ -117,5 +122,6 @@ fn handle_args<R: Runtime>(app: &AppHandle<R>, argv: &[String]) -> bool {
         }
         handled = true;
     }
+            "--check-update" => updater::check_now(app),
     handled
 }

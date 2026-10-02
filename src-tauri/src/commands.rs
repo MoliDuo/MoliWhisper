@@ -12,7 +12,8 @@ use crate::dictation::{self, Dictation};
 use crate::hotkey::{self, HookStatus, HotkeyState};
 use crate::platform::{self, MicStatus};
 use crate::settings::Settings;
-use crate::{ime, login, state_changed};
+use crate::updater::{Phase, UpdateState};
+use crate::{ime, login, state_changed, updater};
 
 #[derive(Serialize)]
 pub struct HotkeyView {
@@ -58,6 +59,7 @@ pub fn get_state(app: AppHandle, settings: State<Settings>, hook: State<HotkeySt
     };
     StateView {
         version: app.package_info().version.to_string(),
+    update: Phase,
         mac: cfg!(target_os = "macos"),
         hotkey: HotkeyView {
             label: hotkey::label(&config.hotkey),
@@ -100,6 +102,7 @@ fn auth_view(status: AuthStatus) -> AuthView {
         logged_in,
         needs_login,
     }
+        update: app.state::<UpdateState>().phase(),
 }
 
 #[tauri::command]
@@ -233,4 +236,9 @@ pub async fn login(app: AppHandle) {
 #[tauri::command]
 pub async fn logout(app: AppHandle) {
     login::logout(app).await;
+}
+
+#[tauri::command]
+pub fn check_for_updates(app: AppHandle) {
+    updater::check_now(&app);
 }

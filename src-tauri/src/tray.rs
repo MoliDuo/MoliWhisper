@@ -7,7 +7,8 @@ use tauri::{AppHandle, Manager, Runtime};
 use crate::auth::{Auth, AuthStatus};
 use crate::hotkey::{self, HookStatus, HotkeyState};
 use crate::settings::Settings;
-use crate::{login, platform, windows};
+use crate::updater::{Phase, UpdateState};
+use crate::{login, platform, updater, windows};
 
 pub const TRAY_ID: &str = "main";
 
@@ -31,6 +32,7 @@ pub fn create<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                 platform::open_accessibility_settings();
             }
             "settings" => windows::show_settings(app),
+            "update" => updater::check_now(app),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -83,6 +85,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         menu = menu.text("accessibility", "授予辅助功能权限…");
     }
     menu.separator()
+        .item(&update_item(app)?)
         .text("settings", "设置…")
         .separator()
         .text("quit", "退出 MoliWhisper")
@@ -107,6 +110,20 @@ fn web_status(status: AuthStatus) -> (String, Option<&'static str>, bool) {
         AuthStatus::Expired => ("登录已过期".to_string(), Some("重新登录…"), true),
     }
 }
+/// "检查更新…", greyed out with what it is doing while a check runs.
+fn update_item<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<MenuItem<R>> {
+    let phase = app
+        .try_state::<UpdateState>()
+        .map_or(Phase::Idle, |s| s.phase());
+    let (text, enabled) = match phase {
+        Phase::Idle => ("检查更新…".to_string(), true),
+        Phase::Checking => ("正在检查更新…".to_string(), false),
+        Phase::Found(v) => (format!("发现新版本 {v}"), false),
+        Phase::Downloading(v) => (format!("正在下载 {v}…"), false),
+    };
+    MenuItem::with_id(app, "update", text, enabled, None::<&str>)
+}
+
 
 fn hotkey_line<R: Runtime>(app: &AppHandle<R>) -> String {
     let config = app.state::<Settings>().get();

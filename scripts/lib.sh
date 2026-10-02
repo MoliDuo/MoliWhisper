@@ -23,6 +23,17 @@ signing_config() {
   fi
 }
 
+# The version of a build of HEAD: X.Y from Cargo.toml, the patch number is the
+# commit count, so every push to master is newer than the one before. CI
+# (release.yml) and install.sh both use it, so a local build of a pushed
+# commit is not offered its own release as an update.
+build_version() {
+  local base
+  base="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml")"
+  base="${base%%-*}"
+  echo "${base%.*}.$(git -C "$ROOT" rev-list --count HEAD)"
+}
+
 kill_app() {
   pkill -x "$BINARY_NAME" 2>/dev/null && sleep 0.5 || true
 }

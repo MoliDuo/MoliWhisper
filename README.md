@@ -30,9 +30,9 @@
 
 ### 安装
 
-要求 macOS 13.0+（Apple Silicon）。master 每次推送、CI 通过后都会发布一个开发版（`vX.Y.Z-dev.N`，保留最近 10 个），正式版另外打标签发布，都在 [Releases](https://github.com/MoliDuo/MoliWhisper/releases)。
+要求 macOS 13.0+（Apple Silicon）。master 每次推送、CI 通过后都会发布一个新版本（`X.Y.N`，N 是提交数，保留最近 10 个），在 [Releases](https://github.com/MoliDuo/MoliWhisper/releases)。
 
-安装最新的一个（开发版也算）到「应用程序」文件夹，需要 [gh](https://cli.github.com)：
+第一次安装最新版到「应用程序」文件夹，需要 [gh](https://cli.github.com)：
 
 ```bash
 ./scripts/update.sh
@@ -70,6 +70,18 @@
 5. 再次按下右 `⌥` 结束识别，文字会自动复制到剪贴板并粘贴到输入框
 6. 如果想取消，按 `ESC` 即可
 
+### 自动更新
+
+装好之后应用会自己更新，做法和 MoliSwitch 一样：
+
+- 启动后和之后每小时检查一次 GitHub 上的最新版本，没有新版本或网络出错时不打扰。
+- 发现新版本时弹窗询问，选「安装并重启」才下载、替换并重启；选「稍后」则本次运行不再提醒这个版本。
+- 菜单栏的「检查更新…」和设置页「通用」里的按钮可以手动检查，会明确告诉你「已是最新版本」或失败原因。
+- 从 dmg 里直接运行（`/Volumes/…`）或被 macOS 放在只读临时位置运行时无法自我替换，会提示先拖进「应用程序」。
+- 每个版本都用同一张证书签名，更新后辅助功能和麦克风授权保留。
+
+更新清单是 `https://github.com/MoliDuo/MoliWhisper/releases/latest/download/latest.json`，其中的下载地址指向该版本自己的更新包，不用 `latest`。更新包用单独的更新密钥签名（公钥在 `tauri.conf.json`），应用只安装签名有效、且签名里的版本号与清单一致的包。
+
 点击菜单中的「使用帮助」可查看快捷键和使用说明：
 
 <img src="docs/screenshots/help_pannel.png" width="400" alt="使用帮助">
@@ -105,10 +117,10 @@
 ./scripts/install.sh
 
 # 从 GitHub 装最新发布的版本（或指定标签）
-./scripts/update.sh [v2.0.0]
+./scripts/update.sh [v2.0.97]
 
-# 发正式版：改版本号、提交、打标签并推送，CI 构建发布
-./scripts/release.sh 2.0.1
+# 改主次版本号（补丁号由 CI 按提交数填）
+./scripts/set-version.sh 2.1.0
 
 # 看日志 / 结束进程 / 重置系统授权
 ./scripts/logs.sh
@@ -127,3 +139,5 @@ cargo test -p moli-core
 ## License
 
 [MIT](LICENSE)
+更新包另用一把更新密钥签名：`./scripts/setup-updater-keys.sh` 在本机生成一次，公钥写进 `tauri.conf.json`，私钥和密码存进 Secrets 的 `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。没有它 CI 不会发布。私钥丢了，已安装的版本就再也收不到自动更新，务必备份。
+

@@ -1,88 +1,97 @@
 name: Release
 
-# Two kinds of release:
-# - Every push to master that passes CI: a macOS dev build, vX.Y.Z-dev.N
-#   (N counts the commits), published as a prerelease. Only the latest
-#   KEEP_DEV_BUILDS are kept.
-# - A vX.Y.Z tag (scripts/release.sh): the macOS .dmg and the Windows
-#   installer. Tags with a `-` (v2.0.0-rc.1) become prereleases.
+# Every push to master that passes CI becomes a release, the way MoliSwitch
+# does it: version X.Y.N (X.Y from Cargo.toml, N the commit count; see
+# build_version in scripts/lib.sh), published as the latest release. Its
+# latest.json is the feed the app's updater reads,
+#   https://github.com/MoliDuo/MoliWhisper/releases/latest/download/latest.json
+# and points at that release's own .app.tar.gz asset, never at "latest".
 #
-# The .app is signed with the Apple Development certificate in the
-# APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD secrets, the same one local
-# builds use, so macOS keeps the Accessibility and microphone grants across
-# updates. Without the secrets it falls back to an ad-hoc signature.
+# Two signatures:
+# - the .app, with the Apple Development certificate in APPLE_CERTIFICATE /
+#   APPLE_CERTIFICATE_PASSWORD, the one local builds use, so macOS keeps the
+#   Accessibility and microphone grants across updates;
+# - the update archive, with the updater key in TAURI_SIGNING_PRIVATE_KEY /
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD (scripts/setup-updater-keys.sh), whose
+#   public half is in tauri.conf.json.
 
 on:
-  push:
-    tags: ["v*"]
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [master]
 
+# One release at a time, never cancelled halfway (that leaves a draft behind).
+# A newer push waiting here replaces an older one that is still waiting.
 concurrency:
-  group: release-${{ github.event.workflow_run.head_sha || github.ref }}
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 env:
-  KEEP_DEV_BUILDS: 10
+  KEEP_RELEASES: 10
+  SHA: ${{ github.event.workflow_run.head_sha }}
 
 jobs:
   prepare:
-    # Dev builds: only for pushes to this repo's master that passed CI.
+    # Only pushes to this repo's master that passed CI.
     if: >-
-      github.event_name == 'push' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     outputs:
       skip: ${{ steps.version.outputs.skip }}
       version: ${{ steps.version.outputs.version }}
-      dev: ${{ steps.version.outputs.dev }}
-      matrix: ${{ steps.version.outputs.matrix }}
       release_id: ${{ steps.create.outputs.release_id }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+          ref: ${{ env.SHA }}
           fetch-depth: 0
+
+      - name: Check the updater key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          # A release the installed apps can't verify must not go out.
+          if [ -z "$(jq -r '.plugins.updater.pubkey // empty' src-tauri/tauri.conf.json)" ]; then
+            echo "::error::no updater public key in tauri.conf.json; run scripts/setup-updater-keys.sh"
+            exit 1
+          fi
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set; run scripts/setup-updater-keys.sh"
+            exit 1
+          fi
 
       - name: Work out the version
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          cargo_v=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
-          mac='{"os":"macos-latest","target":"aarch64-apple-darwin","args":"--target aarch64-apple-darwin --bundles app,dmg"}'
-          win='{"os":"windows-latest","target":"x86_64-pc-windows-msvc","args":"--bundles nsis"}'
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
-            version="${GITHUB_REF_NAME#v}"
-            tauri_v=$(jq -r .version src-tauri/tauri.conf.json)
-            node_v=$(jq -r .version package.json)
-            echo "tag=$version Cargo.toml=$cargo_v tauri.conf.json=$tauri_v package.json=$node_v"
-            if [ "$version" != "$cargo_v" ] || [ "$version" != "$tauri_v" ] || [ "$version" != "$node_v" ]; then
-              echo "::error::tag $GITHUB_REF_NAME does not match the version in the repo; use scripts/release.sh"
-              exit 1
+          skip() {
+            echo "::notice::$1"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/master" --jq .sha)
+          [ "$head" = "$SHA" ] || skip "master has moved on to $head; skipping $SHA"
+          version=$(bash -c 'source scripts/lib.sh && build_version')
+          # Re-running an old build must not publish over a newer release.
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)
+          latest="${latest#v}"
+          if [ -n "$latest" ]; then
+            newest=$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -1)
+            if [ "$version" = "$latest" ] || [ "$newest" != "$version" ]; then
+              skip "$version is not newer than the latest release $latest"
             fi
-            dev=false
-            matrix="[$mac,$win]"
-          else
-            # A release commit gets its tag build; no dev build for it too.
-            if git tag --points-at HEAD | grep -q '^v'; then
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            version="${cargo_v%%-*}-dev.$(git rev-list --count HEAD)"
-            dev=true
-            matrix="[$mac]"
           fi
           echo "version=$version"
           {
             echo "skip=false"
             echo "version=$version"
-            echo "dev=$dev"
-            echo "matrix=$matrix"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create a draft release
@@ -92,26 +101,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          sha=$(git rev-parse HEAD)
-          if [ "${{ steps.version.outputs.dev }}" = true ]; then
-            {
-              echo "开发版，对应提交 $sha。"
-              echo
-              git log -1 --format='> %s'
-              echo
-              cat .github/release-notes.md
-            } > "$RUNNER_TEMP/notes.md"
-          else
-            cp .github/release-notes.md "$RUNNER_TEMP/notes.md"
-          fi
-          prerelease=false
-          case "$VERSION" in *-*) prerelease=true ;; esac
+          {
+            echo "对应提交 $SHA。"
+            echo
+            git log -1 --format='> %s'
+            echo
+            cat .github/release-notes.md
+          } > "$RUNNER_TEMP/notes.md"
           id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
             -f tag_name="v$VERSION" \
-            -f target_commitish="$sha" \
+            -f target_commitish="$SHA" \
             -f name="MoliWhisper $VERSION" \
             -F body=@"$RUNNER_TEMP/notes.md" \
-            -F draft=true -F prerelease=$prerelease \
+            -F draft=true -F prerelease=false \
             --jq .id)
           test -n "$id"
           echo "release_id=$id" >> "$GITHUB_OUTPUT"
@@ -119,15 +121,11 @@ jobs:
   build:
     needs: prepare
     if: needs.prepare.outputs.skip == 'false'
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.prepare.outputs.matrix) }}
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+          ref: ${{ env.SHA }}
 
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
@@ -138,19 +136,20 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         with:
-          key: release-${{ matrix.target }}
+          key: release-aarch64-apple-darwin
 
-      - name: Set the dev version
-        if: needs.prepare.outputs.dev == 'true'
-        run: scripts/set-version.sh "${{ needs.prepare.outputs.version }}"
+      - name: Set the version and turn on the update archive
+        run: |
+          scripts/set-version.sh "${{ needs.prepare.outputs.version }}"
+          jq '.bundle.createUpdaterArtifacts = true' src-tauri/tauri.conf.json > "$RUNNER_TEMP/tauri.conf.json"
+          mv "$RUNNER_TEMP/tauri.conf.json" src-tauri/tauri.conf.json
 
       # A throwaway keychain with the certificate; the runner is discarded
       # afterwards. Sets APPLE_SIGNING_IDENTITY for the build.
       - name: Import the signing certificate
-        if: runner.os == 'macOS'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -182,29 +181,67 @@ jobs:
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.prepare.outputs.release_id }}
           tauriScript: pnpm tauri
-          args: ${{ matrix.args }}
-          uploadUpdaterJson: false
+          args: --target aarch64-apple-darwin --bundles app,dmg
+          uploadUpdaterJson: true
           retryAttempts: 1
 
   publish:
     needs: [prepare, build]
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
     steps:
       - name: Publish the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/${{ needs.prepare.outputs.release_id }}" -F draft=false --jq .html_url
-
-      - name: Delete old dev builds
-        if: needs.prepare.outputs.dev == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
+        id: publish
         run: |
+          # master may have moved on during the build; the newer push publishes instead.
+          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/master" --jq .sha)
+          if [ "$head" != "$SHA" ]; then
+            echo "::notice::master has moved on to $head; dropping the draft for $VERSION"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            -F draft=false -f make_latest=true --jq .html_url
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check the public feed
+        if: steps.publish.outputs.published == 'true'
+        run: |
+          feed="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/latest.json"
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsSL "$feed" -o latest.json && [ "$(jq -r .version latest.json)" = "$VERSION" ]; then
+              break
+            fi
+            [ "$attempt" = 6 ] && { echo "::error::$feed does not announce $VERSION"; exit 1; }
+            sleep 10
+          done
+          cat latest.json
+          # tauri-action links the asset by its id, which is as fixed as a tag URL.
+          url=$(jq -r '.platforms["darwin-aarch64"].url' latest.json)
+          if ! gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq '.[].url' | grep -qxF "$url"; then
+            echo "::error::the feed points at $url, not at an asset of v$VERSION"
+            exit 1
+          fi
+          test -n "$(jq -r '.platforms["darwin-aarch64"].signature // empty' latest.json)"
+          # What the updater does: no token, Accept: application/octet-stream.
+          curl -fsSL -H "Accept: application/octet-stream" "$url" -o update.tar.gz
+          tar -tzf update.tar.gz | head -3
+
+      - name: Delete old releases
+        if: steps.publish.outputs.published == 'true'
+        run: |
+          # Per-push releases (vX.Y.N, and the earlier vX.Y.Z-dev.N); older tagged prereleases stay.
           gh release list -R "$GITHUB_REPOSITORY" --exclude-drafts --limit 200 --json tagName,createdAt \
-            --jq "[.[] | select(.tagName | test(\"-dev\\\\.\"))] | sort_by(.createdAt) | reverse | .[$KEEP_DEV_BUILDS:] | .[].tagName" |
+            --jq "[.[] | select(.tagName | test(\"^v[0-9]+\\\\.[0-9]+\\\\.[0-9]+$|-dev\\\\.\"))] | sort_by(.createdAt) | reverse | .[$KEEP_RELEASES:] | .[].tagName" |
             while read -r tag; do
               echo "deleting $tag"
               gh release delete "$tag" -R "$GITHUB_REPOSITORY" --cleanup-tag --yes

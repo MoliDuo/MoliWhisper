@@ -29,6 +29,9 @@ let overridesDirty = false;
 
 async function refresh() {
   let s: State;
+  update:
+    | { kind: "idle" | "checking" }
+    | { kind: "found" | "downloading"; version: string };
   try {
     s = await invoke<State>("get_state");
   } catch (e) {
@@ -105,9 +108,25 @@ async function call(cmd: string, args?: Record<string, unknown>) {
     showError("");
   } catch (e) {
     showError(String(e));
+  const checkUpdate = $<HTMLButtonElement>("check-update");
+  checkUpdate.disabled = s.update.kind !== "idle";
+  checkUpdate.textContent = updateLabel(s.update);
   }
   await refresh();
 }
+function updateLabel(u: State["update"]): string {
+  switch (u.kind) {
+    case "checking":
+      return "正在检查…";
+    case "found":
+      return `发现 ${u.version}`;
+    case "downloading":
+      return `正在下载 ${u.version}…`;
+    default:
+      return "检查更新…";
+  }
+}
+
 
 function showError(text: string) {
   $("error").hidden = !text;
@@ -175,3 +194,4 @@ listen("hotkey-recorded", refresh);
 // Permissions change in System Settings; look again when the user comes back.
 window.addEventListener("focus", refresh);
 refresh();
+$("check-update").onclick = () => call("check_for_updates");
