@@ -36,6 +36,10 @@ enum Msg<'a> {
     Text {
         text: &'a str,
     },
+    /// The rewritten text so far.
+    Organized {
+        text: &'a str,
+    },
     Message {
         text: &'a str,
         error: bool,
@@ -118,6 +122,12 @@ pub fn organizing<R: Runtime>(app: &AppHandle<R>) {
                 state: "organizing",
             },
         );
+    }
+}
+
+pub fn organized<R: Runtime>(app: &AppHandle<R>, text: &str) {
+    if let Some(window) = app.get_webview_window(LABEL) {
+        emit(&window, Msg::Organized { text });
     }
 }
 

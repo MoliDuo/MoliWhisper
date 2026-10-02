@@ -68,7 +68,9 @@ impl<R: Runtime> Env for AppEnv<R> {
                 Some(organizer) => {
                     overlay::organizing(&app);
                     organizer
-                        .organize(&text, ORGANIZE_TIMEOUT)
+                        .organize(&text, ORGANIZE_TIMEOUT, |partial| {
+                            overlay::organized(&app, partial)
+                        })
                         .await
                         .unwrap_or(text)
                 }

@@ -9,6 +9,7 @@ type Msg =
     }
   | { kind: "level"; value: number }
   | { kind: "text"; text: string }
+  | { kind: "organized"; text: string }
   | { kind: "message"; text: string; error: boolean };
 
 /** Only say "connecting" when it takes long enough to notice. */
@@ -21,6 +22,7 @@ const text = document.getElementById("text")!;
 
 let state = "idle";
 let transcript = "";
+let organized = "";
 let connectingTimer: number | undefined;
 let level = 0;
 
@@ -29,8 +31,8 @@ function render() {
   let shown = transcript;
   let hint = false;
   if (state === "organizing") {
-    shown = "整理中…";
-    hint = true;
+    shown = organized || "整理中…";
+    hint = !organized;
   } else if (!shown) {
     hint = true;
     if (state === "recording") shown = "正在听…";
@@ -56,6 +58,7 @@ function onMessage(msg: Msg) {
   switch (msg.kind) {
     case "reset":
       transcript = "";
+      organized = "";
       level = 0;
       pill.classList.remove("error");
       pill.classList.add("shown");
@@ -64,6 +67,7 @@ function onMessage(msg: Msg) {
       clearTimeout(connectingTimer);
       state = "idle";
       transcript = "";
+      organized = "";
       pill.classList.remove("shown", "error");
       setLevel(0);
       break;
@@ -85,6 +89,9 @@ function onMessage(msg: Msg) {
       return;
     case "text":
       transcript = msg.text;
+      break;
+    case "organized":
+      organized = msg.text;
       break;
     case "message":
       clearTimeout(connectingTimer);

@@ -47,11 +47,17 @@ impl Organizer {
         })
     }
 
-    /// `None` when the service fails, takes longer than `timeout` or
+    /// Streams the rewrite; `on_partial` gets the text so far each time it
+    /// grows. `None` when the service fails, takes longer than `timeout` or
     /// answers with nothing; the caller then keeps the original text.
-    pub async fn organize(&self, text: &str, timeout: Duration) -> Option<String> {
+    pub async fn organize(
+        &self,
+        text: &str,
+        timeout: Duration,
+        mut on_partial: impl FnMut(&str),
+    ) -> Option<String> {
         let t = Instant::now();
-        match tokio::time::timeout(timeout, self.request(text)).await {
+        match tokio::time::timeout(timeout, self.stream(text, &mut on_partial)).await {
             Err(_) => {
                 tracing::warn!("organizing timed out");
                 None
@@ -76,6 +82,21 @@ impl Organizer {
         }
     }
 
+    fn post(&self, text: &str, stream: bool) -> reqwest::RequestBuilder {
+        self.http
+            .post(&self.endpoint)
+            .bearer_auth(&self.api_key)
+            .json(&json!({
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": self.prompt},
+                    {"role": "user", "content": text},
+                ],
+                "temperature": 0.2,
+                "stream": stream,
+            }))
+    }
+
     async fn request(&self, text: &str) -> Result<String, reqwest::Error> {
         #[derive(Deserialize)]
         struct Reply {
@@ -90,18 +111,7 @@ impl Organizer {
             content: Option<String>,
         }
         let reply: Reply = self
-            .http
-            .post(&self.endpoint)
-            .bearer_auth(&self.api_key)
-            .json(&json!({
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": self.prompt},
-                    {"role": "user", "content": text},
-                ],
-                "temperature": 0.2,
-                "stream": false,
-            }))
+            .post(text, false)
             .send()
             .await?
             .error_for_status()?
@@ -115,6 +125,85 @@ impl Organizer {
             .unwrap_or_default();
         Ok(clean(&content))
     }
+
+    async fn stream(
+        &self,
+        text: &str,
+        on_partial: &mut impl FnMut(&str),
+    ) -> Result<String, reqwest::Error> {
+        let mut response = self.post(text, true).send().await?.error_for_status()?;
+        let mut lines = Lines::default();
+        let mut content = String::new();
+        let mut shown = String::new();
+        'read: while let Some(chunk) = response.chunk().await? {
+            for line in lines.push(&chunk) {
+                match delta(&line) {
+                    Delta::None => {}
+                    Delta::Done => break 'read,
+                    Delta::Text(piece) => {
+                        content.push_str(&piece);
+                        let now = clean(&content);
+                        if now != shown {
+                            on_partial(&now);
+                            shown = now;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(shown)
+    }
+}
+
+/// Splits a byte stream into lines, so a character cut between two chunks is
+/// decoded whole.
+#[derive(Default)]
+struct Lines(Vec<u8>);
+
+impl Lines {
+    fn push(&mut self, chunk: &[u8]) -> Vec<String> {
+        self.0.extend_from_slice(chunk);
+        let mut out = Vec::new();
+        while let Some(end) = self.0.iter().position(|&b| b == b'\n') {
+            let line: Vec<u8> = self.0.drain(..=end).collect();
+            out.push(String::from_utf8_lossy(&line).trim_end().to_string());
+        }
+        out
+    }
+}
+
+enum Delta {
+    None,
+    Done,
+    Text(String),
+}
+
+/// One server-sent-events line of a streamed chat completion.
+fn delta(line: &str) -> Delta {
+    #[derive(Deserialize)]
+    struct Chunk {
+        #[serde(default)]
+        choices: Vec<Choice>,
+    }
+    #[derive(Deserialize)]
+    struct Choice {
+        delta: Content,
+    }
+    #[derive(Deserialize)]
+    struct Content {
+        content: Option<String>,
+    }
+    let Some(data) = line.strip_prefix("data:").map(str::trim) else {
+        return Delta::None;
+    };
+    if data == "[DONE]" {
+        return Delta::Done;
+    }
+    serde_json::from_str::<Chunk>(data)
+        .ok()
+        .and_then(|c| c.choices.into_iter().next())
+        .and_then(|c| c.delta.content)
+        .map_or(Delta::None, Delta::Text)
 }
 
 /// Trims, and drops a leading `<think>…</think>` block that reasoning models
@@ -137,6 +226,38 @@ mod tests {
         assert_eq!(clean("  <think>hmm\nok</think>\n结果。 "), "结果。");
         assert_eq!(clean("结果。"), "结果。");
         assert_eq!(clean("<think>never closed"), "");
+    }
+
+    #[test]
+    fn lines_survive_a_split_character() {
+        let bytes = "data: 你好\n\ndata: [DONE]\n".as_bytes();
+        let mut lines = Lines::default();
+        // Cut inside the three bytes of 你.
+        assert!(lines.push(&bytes[..8]).is_empty());
+        let rest = lines.push(&bytes[8..]);
+        assert_eq!(rest, ["data: 你好", "", "data: [DONE]"]);
+    }
+
+    #[test]
+    fn reads_stream_lines() {
+        let text = |l| match delta(l) {
+            Delta::Text(t) => Some(t),
+            _ => None,
+        };
+        assert_eq!(
+            text(r#"data: {"choices":[{"delta":{"content":"今天"}}]}"#).as_deref(),
+            Some("今天")
+        );
+        assert_eq!(
+            text(r#"data: {"choices":[{"delta":{"role":"assistant"}}]}"#),
+            None
+        );
+        assert_eq!(
+            text(r#"data: {"choices":[{"delta":{"content":null,"reasoning_content":"x"}}]}"#),
+            None
+        );
+        assert_eq!(text(": keep-alive"), None);
+        assert!(matches!(delta("data: [DONE]"), Delta::Done));
     }
 
     #[test]

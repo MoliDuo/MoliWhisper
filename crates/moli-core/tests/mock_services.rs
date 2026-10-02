@@ -553,15 +553,26 @@ fn organizer(base_url: String) -> Organizer {
 }
 
 #[tokio::test]
-async fn organizer_sends_the_request_and_cleans_the_reply() {
+async fn organizer_streams_the_cleaned_reply() {
     let (url, mut requests) = http_server(
         200,
-        r#"{"choices":[{"message":{"content":"<think>x</think>\n今天天气很好。 "}}]}"#,
+        concat!(
+            "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"<think>x</think>\\n今天\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"天气很好。 \"}}]}\n\n",
+            "data: [DONE]\n\n",
+        ),
         Duration::ZERO,
     )
     .await;
-    let out = organizer(url).organize("嗯 今天天气 很好", T).await;
+    let mut partials = Vec::new();
+    let out = organizer(url)
+        .organize("嗯 今天天气 很好", T, |p| {
+            partials.push(p.to_string())
+        })
+        .await;
     assert_eq!(out.as_deref(), Some("今天天气很好。"));
+    assert_eq!(partials, ["今天", "今天天气很好。"]);
     let req = requests.recv().await.unwrap();
     assert!(req.starts_with("POST /v1/chat/completions"));
     assert!(
@@ -569,30 +580,31 @@ async fn organizer_sends_the_request_and_cleans_the_reply() {
             .contains("authorization: bearer sk-test")
     );
     assert!(req.contains("嗯 今天天气 很好"));
+    assert!(req.contains("\"stream\":true"));
 }
 
 #[tokio::test]
 async fn organizer_failures_give_none() {
     let (url, _r) = http_server(500, "{}", Duration::ZERO).await;
-    assert_eq!(organizer(url).organize("a", T).await, None);
+    assert_eq!(organizer(url).organize("a", T, |_| {}).await, None);
 
     let (url, _r) = http_server(
         200,
-        r#"{"choices":[{"message":{"content":"  "}}]}"#,
+        "data: {\"choices\":[{\"delta\":{\"content\":\"  \"}}]}\n\ndata: [DONE]\n\n",
         Duration::ZERO,
     )
     .await;
-    assert_eq!(organizer(url).organize("a", T).await, None);
+    assert_eq!(organizer(url).organize("a", T, |_| {}).await, None);
 
     let (url, _r) = http_server(
         200,
-        r#"{"choices":[{"message":{"content":"late"}}]}"#,
+        "data: {\"choices\":[{\"delta\":{\"content\":\"late\"}}]}\n\ndata: [DONE]\n\n",
         Duration::from_millis(500),
     )
     .await;
     assert_eq!(
         organizer(url)
-            .organize("a", Duration::from_millis(100))
+            .organize("a", Duration::from_millis(100), |_| {})
             .await,
         None
     );
