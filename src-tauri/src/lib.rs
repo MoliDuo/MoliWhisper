@@ -1,9 +1,6 @@
-mod auth;
 mod commands;
 mod dictation;
 mod hotkey;
-mod ime;
-mod login;
 mod overlay;
 mod platform;
 mod settings;
@@ -13,7 +10,6 @@ mod tray;
 mod updater;
 mod windows;
 
-use moli_core::config::BackendKind;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_log::{Target, TargetKind, TimezoneStrategy};
@@ -52,21 +48,17 @@ pub fn run() {
             commands::get_state,
             commands::set_mode,
             commands::set_restore_clipboard,
-            commands::set_backend,
             commands::set_organize,
             commands::set_qwen,
             commands::test_qwen,
-            commands::set_organizer,
-            commands::test_organizer,
+            commands::set_deepseek,
+            commands::test_deepseek,
             commands::set_autostart,
-            commands::set_overrides,
             commands::record_hotkey,
             commands::cancel_record_hotkey,
             commands::reset_hotkey,
             commands::open_accessibility_settings,
             commands::open_microphone_settings,
-            commands::login,
-            commands::logout,
             commands::check_for_updates,
         ])
         .setup(|app| {
@@ -77,12 +69,8 @@ pub fn run() {
                 "MoliWhisper {} started, data dir {data_dir:?}",
                 app.package_info().version
             );
-            app.manage(auth::Auth::load(&data_dir));
             app.manage(settings::Settings::load(&data_dir));
             updater::init(app.handle());
-            ime::init(app.handle())?;
-            let backend = app.state::<settings::Settings>().get().backend;
-            ime::keep_warm(app.handle(), backend == BackendKind::Ime);
             overlay::create(app.handle())?;
             dictation::init(app.handle());
             hotkey::init(app.handle());
@@ -110,17 +98,12 @@ pub fn state_changed<R: Runtime>(app: &AppHandle<R>) {
     let _ = app.emit_to("settings", "settings-changed", ());
 }
 
-/// `--login` opens the login window, `--logout` forgets the session,
 /// `--dictate` records for a few seconds, `--check-update` checks for a new
 /// version. Returns whether any argument was acted on.
 fn handle_args<R: Runtime>(app: &AppHandle<R>, argv: &[String]) -> bool {
     let mut handled = false;
     for arg in argv.iter().skip(1) {
         match arg.as_str() {
-            "--login" => login::open(app, false),
-            "--logout" => {
-                tauri::async_runtime::spawn(login::logout(app.clone()));
-            }
             "--dictate" => dictation::dictate_for(app, TEST_DICTATION_SECS),
             "--check-update" => updater::check_now(app),
             _ => continue,

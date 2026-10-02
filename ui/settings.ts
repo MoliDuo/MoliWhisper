@@ -13,20 +13,12 @@ interface State {
   recording_hotkey: boolean;
   hook: HookStatus;
   restore_clipboard: boolean;
-  backend: "web" | "ime" | "qwen";
   organize: boolean;
-  qwen_model: string;
-  qwen_url: string;
   has_qwen_key: boolean;
-  organizer: "doubao_ime" | "openai";
-  openai_base_url: string;
-  openai_model: string;
-  openai_prompt: string;
+  has_deepseek_key: boolean;
+  deepseek_prompt: string;
   default_prompt: string;
-  has_openai_key: boolean;
   autostart: boolean;
-  overrides: string;
-  auth: { label: string; logged_in: boolean; needs_login: boolean };
   accessibility: boolean;
   microphone: "granted" | "denied" | "not_determined" | "unknown";
   config_path: string;
@@ -37,9 +29,8 @@ interface State {
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
-let overridesDirty = false;
 let qwenDirty = false;
-let openaiDirty = false;
+let deepseekDirty = false;
 
 async function refresh() {
   let s: State;
@@ -50,32 +41,19 @@ async function refresh() {
     return;
   }
 
-  for (const r of document.querySelectorAll<HTMLInputElement>('input[name="backend"]')) {
-    r.checked = r.value === s.backend;
-  }
-  $("account").hidden = s.backend !== "web";
-  $("qwen").hidden = s.backend !== "qwen";
   if (!qwenDirty) {
-    $<HTMLInputElement>("qwen-model").value = s.qwen_model;
-    $<HTMLInputElement>("qwen-url").value = s.qwen_url;
     $<HTMLInputElement>("qwen-key").placeholder = s.has_qwen_key ? "已保存（留空保持不变）" : "sk-…";
   }
   $<HTMLInputElement>("organize").checked = s.organize;
-  $<HTMLSelectElement>("organizer-provider").value = s.organizer;
-  $("openai").hidden = s.organizer !== "openai";
-  if (!openaiDirty) {
-    $<HTMLInputElement>("openai-base").value = s.openai_base_url;
-    $<HTMLInputElement>("openai-model").value = s.openai_model;
-    $<HTMLInputElement>("openai-key").placeholder = s.has_openai_key ? "已保存（留空保持不变）" : "";
-    const prompt = $<HTMLTextAreaElement>("openai-prompt");
-    prompt.value = s.openai_prompt;
+  $("deepseek").hidden = !s.organize;
+  if (!deepseekDirty) {
+    $<HTMLInputElement>("deepseek-key").placeholder = s.has_deepseek_key
+      ? "已保存（留空保持不变）"
+      : "sk-…";
+    const prompt = $<HTMLTextAreaElement>("deepseek-prompt");
+    prompt.value = s.deepseek_prompt;
     prompt.placeholder = s.default_prompt;
   }
-  $("auth-label").textContent = s.auth.label;
-  const login = $<HTMLButtonElement>("login");
-  login.hidden = s.auth.logged_in && !s.auth.needs_login;
-  login.textContent = s.auth.logged_in ? "重新登录…" : "登录…";
-  $("logout").hidden = !s.auth.logged_in;
 
   $("hotkey-label").textContent = s.hotkey.label;
   $("hotkey-usage").textContent = s.hotkey.usage;
@@ -106,7 +84,6 @@ async function refresh() {
 
   $<HTMLInputElement>("autostart").checked = s.autostart;
   $<HTMLInputElement>("restore").checked = s.restore_clipboard;
-  if (!overridesDirty) $<HTMLTextAreaElement>("overrides").value = s.overrides;
   $("config-path").textContent = s.config_path;
   const checkUpdate = $<HTMLButtonElement>("check-update");
   checkUpdate.disabled = s.update.kind !== "idle";
@@ -160,9 +137,6 @@ function showError(text: string) {
   $("error").textContent = text;
 }
 
-for (const r of document.querySelectorAll<HTMLInputElement>('input[name="backend"]')) {
-  r.onchange = () => r.checked && call("set_backend", { backend: r.value });
-}
 $<HTMLInputElement>("organize").onchange = (e) =>
   call("set_organize", { enabled: (e.target as HTMLInputElement).checked });
 
@@ -173,13 +147,13 @@ function message(id: string, text: string, ok: boolean | null) {
   el.classList.toggle("bad", ok === false);
 }
 
-// The token or key is sent only when something was typed; otherwise the saved one stays.
+// The key is sent only when something was typed; otherwise the saved one stays.
 function secret(id: string): string | null {
   const v = $<HTMLInputElement>(id).value;
   return v === "" ? null : v;
 }
 
-for (const id of ["qwen-key", "qwen-model", "qwen-url"]) {
+for (const id of ["qwen-key"]) {
   $(id).oninput = () => {
     qwenDirty = true;
     message("qwen-msg", "未保存", null);
@@ -188,11 +162,7 @@ for (const id of ["qwen-key", "qwen-model", "qwen-url"]) {
 $("qwen-test").onclick = async () => {
   message("qwen-msg", "正在连接…", null);
   try {
-    await invoke("set_qwen", {
-      apiKey: secret("qwen-key"),
-      model: $<HTMLInputElement>("qwen-model").value,
-      url: $<HTMLInputElement>("qwen-url").value,
-    });
+    await invoke("set_qwen", { apiKey: secret("qwen-key") });
     qwenDirty = false;
     $<HTMLInputElement>("qwen-key").value = "";
     message("qwen-msg", await invoke<string>("test_qwen"), true);
@@ -202,60 +172,26 @@ $("qwen-test").onclick = async () => {
   await refresh();
 };
 
-function saveOrganizer() {
-  return invoke("set_organizer", {
-    provider: $<HTMLSelectElement>("organizer-provider").value,
-    baseUrl: $<HTMLInputElement>("openai-base").value,
-    model: $<HTMLInputElement>("openai-model").value,
-    prompt: $<HTMLTextAreaElement>("openai-prompt").value,
-    apiKey: secret("openai-key"),
-  });
-}
-$<HTMLSelectElement>("organizer-provider").onchange = async () => {
-  try {
-    await saveOrganizer();
-    openaiDirty = false;
-    showError("");
-  } catch (e) {
-    showError(String(e));
-  }
-  await refresh();
-};
-for (const id of ["openai-base", "openai-key", "openai-model", "openai-prompt"]) {
+for (const id of ["deepseek-key", "deepseek-prompt"]) {
   $(id).oninput = () => {
-    openaiDirty = true;
-    message("openai-msg", "未保存", null);
+    deepseekDirty = true;
+    message("deepseek-msg", "未保存", null);
   };
 }
-$("openai-test").onclick = async () => {
-  message("openai-msg", "正在测试…", null);
+$("deepseek-test").onclick = async () => {
+  message("deepseek-msg", "正在测试…", null);
   try {
-    await saveOrganizer();
-    openaiDirty = false;
-    $<HTMLInputElement>("openai-key").value = "";
-    message("openai-msg", "示例：" + (await invoke<string>("test_organizer")), true);
+    await invoke("set_deepseek", {
+      apiKey: secret("deepseek-key"),
+      prompt: $<HTMLTextAreaElement>("deepseek-prompt").value,
+    });
+    deepseekDirty = false;
+    $<HTMLInputElement>("deepseek-key").value = "";
+    message("deepseek-msg", await invoke<string>("test_deepseek"), true);
   } catch (e) {
-    message("openai-msg", String(e), false);
+    message("deepseek-msg", String(e), false);
   }
   await refresh();
-};
-$("login").onclick = () => call("login");
-// No confirm(): a second click within a few seconds confirms.
-let logoutArmed: number | undefined;
-$("logout").onclick = () => {
-  const button = $<HTMLButtonElement>("logout");
-  if (logoutArmed === undefined) {
-    button.textContent = "再点一次确认退出";
-    logoutArmed = window.setTimeout(() => {
-      logoutArmed = undefined;
-      button.textContent = "退出登录";
-    }, 3000);
-    return;
-  }
-  clearTimeout(logoutArmed);
-  logoutArmed = undefined;
-  button.textContent = "退出登录";
-  call("logout");
 };
 $("record").onclick = () => call("record_hotkey");
 $("cancel-record").onclick = () => call("cancel_record_hotkey");
@@ -270,26 +206,6 @@ $<HTMLInputElement>("autostart").onchange = (e) =>
 $("check-update").onclick = () => call("check_for_updates");
 $<HTMLInputElement>("restore").onchange = (e) =>
   call("set_restore_clipboard", { enabled: (e.target as HTMLInputElement).checked });
-
-const overrides = $<HTMLTextAreaElement>("overrides");
-const overridesMsg = $("overrides-msg");
-overrides.oninput = () => {
-  overridesDirty = true;
-  overridesMsg.textContent = "未保存";
-  overridesMsg.classList.remove("bad");
-};
-$("overrides-save").onclick = async () => {
-  try {
-    await invoke("set_overrides", { text: overrides.value });
-    overridesDirty = false;
-    overridesMsg.textContent = "已保存，下次录音生效";
-    overridesMsg.classList.remove("bad");
-  } catch (e) {
-    overridesMsg.textContent = String(e);
-    overridesMsg.classList.add("bad");
-  }
-  await refresh();
-};
 
 listen("settings-changed", refresh);
 listen("hotkey-recorded", refresh);

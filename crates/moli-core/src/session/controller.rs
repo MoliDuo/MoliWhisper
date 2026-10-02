@@ -12,23 +12,20 @@ use tokio::task::AbortHandle;
 
 use super::Outcome;
 use super::machine::{Effect, Event, Machine, Phase, Sid, Timings};
-use crate::asr::{AsrEvent, Backend, ConnectError, Handshake, ServerMsg, Sink, Stream};
+use crate::asr::{AsrEvent, ConnectError, Handshake, ServerMsg};
 use crate::audio::{AudioEvent, AudioInput};
-use crate::doubao::web::protocol;
+use crate::qwen::{self, QwenSink, QwenStream};
 
 /// How long a finished pipe may take to close the connection politely.
 const CLOSE_GRACE: Duration = Duration::from_secs(2);
 
 /// What the controller needs from the app.
 pub trait Env: Send + Sync + 'static {
-    /// Where and how to connect, or `None` when the chosen backend needs a
-    /// login and nobody is logged in.
-    fn backend(&self) -> Option<Backend>;
+    /// Where and how to connect, or `None` without an API key.
+    fn connect_options(&self) -> Option<qwen::ConnectOptions>;
     fn start_audio(&self) -> AudioInput;
     /// Puts the text where the user wants it.
     fn deliver(&self, text: String) -> impl Future<Output = Result<(), String>> + Send + 'static;
-    /// The server refused the stored login.
-    fn session_rejected(&self);
     fn update(&self, update: Update);
 }
 
@@ -46,7 +43,6 @@ pub enum Update {
 enum Msg {
     Toggle,
     Event(Event),
-    Timings(Timings),
 }
 
 /// Handle to the running controller. Cheap to clone.
@@ -65,7 +61,6 @@ impl Controller {
             tx: tx.clone(),
             rx,
             session: None,
-            next_timings: None,
         };
         (Self { tx }, actor.run())
     }
@@ -85,11 +80,6 @@ impl Controller {
     /// Starts when idle, stops when connecting or recording.
     pub fn toggle(&self) {
         self.send(Msg::Toggle);
-    }
-
-    /// Used from the next session on; the current one keeps its timings.
-    pub fn set_timings(&self, timings: Timings) {
-        self.send(Msg::Timings(timings));
     }
 
     fn send(&self, msg: Msg) {
@@ -112,8 +102,6 @@ struct Actor<E> {
     tx: mpsc::UnboundedSender<Msg>,
     rx: mpsc::UnboundedReceiver<Msg>,
     session: Option<Session>,
-    /// Set while a session runs; applied once it is over.
-    next_timings: Option<Timings>,
 }
 
 impl<E: Env> Actor<E> {
@@ -126,22 +114,13 @@ impl<E: Env> Actor<E> {
                     Phase::Finalizing | Phase::Delivering => continue,
                 },
                 Msg::Event(e) => e,
-                Msg::Timings(t) => {
-                    self.next_timings = Some(t);
-                    continue;
-                }
             };
-            if self.machine.phase() == Phase::Idle
-                && let Some(t) = self.next_timings.take()
-            {
-                self.machine.set_timings(t);
-            }
             if event == Event::Start
                 && self.machine.phase() == Phase::Idle
-                && self.env.backend().is_none()
+                && self.env.connect_options().is_none()
             {
-                tracing::info!("dictation requested but not logged in");
-                self.env.update(Update::Outcome(Outcome::NeedLogin));
+                tracing::info!("dictation requested without an API key");
+                self.env.update(Update::Outcome(Outcome::NoKey));
                 continue;
             }
             let before = self.machine.phase();
@@ -179,14 +158,14 @@ impl<E: Env> Actor<E> {
             Effect::StopAudio => self.pipe(PipeCmd::StopAudio),
             Effect::Connect { sid, attempt } => {
                 tracing::info!(sid, attempt, "connecting");
-                match self.env.backend() {
-                    Some(backend) => {
+                match self.env.connect_options() {
+                    Some(options) => {
                         let timeout = self.machine.timings().connect_attempt;
-                        self.pipe(PipeCmd::Connect(Box::new(backend), timeout));
+                        self.pipe(PipeCmd::Connect(Box::new(options), timeout));
                     }
                     None => self.event_later(Event::ConnectFailed {
                         sid,
-                        reason: "not logged in".into(),
+                        reason: "no API key".into(),
                     }),
                 }
             }
@@ -225,10 +204,6 @@ impl<E: Env> Actor<E> {
                     let _ = tx.send(Msg::Event(Event::Delivered { sid, result }));
                 });
             }
-            Effect::MarkRejected => {
-                tracing::warn!("the server rejected the stored login");
-                self.env.session_rejected();
-            }
             Effect::Outcome(outcome) => {
                 tracing::info!(?outcome, "session ended");
                 self.env.update(Update::Outcome(outcome));
@@ -249,14 +224,14 @@ impl<E: Env> Actor<E> {
 }
 
 enum PipeCmd {
-    Connect(Box<Backend>, Duration),
+    Connect(Box<qwen::ConnectOptions>, Duration),
     StopAudio,
     /// Send the finish frame once the microphone is done.
     Finish,
 }
 
 type Connecting =
-    Pin<Box<dyn Future<Output = Result<(Sink, Stream, Handshake), ConnectError>> + Send>>;
+    Pin<Box<dyn Future<Output = Result<(QwenSink, QwenStream, Handshake), ConnectError>> + Send>>;
 
 /// Moves audio from the microphone to the server and server messages back
 /// to the actor, for one session.
@@ -274,8 +249,8 @@ impl<E: Env> Pipe<E> {
         // Audio captured before the connection is up.
         let mut pending: Vec<Vec<u8>> = Vec::new();
         let mut connecting: Option<Connecting> = None;
-        let mut sink: Option<Sink> = None;
-        let mut stream: Option<Stream> = None;
+        let mut sink: Option<QwenSink> = None;
+        let mut stream: Option<QwenStream> = None;
         let mut audio_done = false;
         let mut finish_requested = false;
         let mut finish_sent = false;
@@ -285,8 +260,10 @@ impl<E: Env> Pipe<E> {
         loop {
             tokio::select! {
                 cmd = self.cmds.recv() => match cmd {
-                    Some(PipeCmd::Connect(backend, timeout)) => {
-                        connecting = Some(Box::pin(async move { backend.connect(timeout).await }));
+                    Some(PipeCmd::Connect(options, timeout)) => {
+                        connecting = Some(Box::pin(async move {
+                            qwen::connect(&qwen::ConnectOptions { timeout, ..*options }).await
+                        }));
                     }
                     Some(PipeCmd::StopAudio) => self.audio.stop(),
                     Some(PipeCmd::Finish) => finish_requested = true,
@@ -314,6 +291,7 @@ impl<E: Env> Pipe<E> {
                             stream = Some(st);
                             self.emit(Event::Connected { sid });
                         }
+                        Err(ConnectError::KeyRejected) => self.emit(Event::KeyRejected { sid }),
                         Err(e) => self.emit(Event::ConnectFailed { sid, reason: e.to_string() }),
                     }
                 },
@@ -383,16 +361,10 @@ fn map_server_event(sid: Sid, event: AsrEvent) -> Option<Event> {
     match event {
         AsrEvent::Server(ServerMsg::Result { text }) => Some(Event::Text { sid, text }),
         AsrEvent::Server(ServerMsg::Finish) => Some(Event::ServerFinished { sid }),
-        AsrEvent::Server(ServerMsg::Error { code, message }) => {
-            if protocol::is_session_rejected(Some(code), None) {
-                Some(Event::SessionRejected { sid })
-            } else {
-                Some(Event::ConnectionLost {
-                    sid,
-                    reason: format!("server error {code}: {message}"),
-                })
-            }
-        }
+        AsrEvent::Server(ServerMsg::Error { code, message }) => Some(Event::ConnectionLost {
+            sid,
+            reason: format!("server error {code}: {message}"),
+        }),
         AsrEvent::Server(ServerMsg::Unknown { event }) => {
             tracing::debug!(sid, "ignoring server event {event:?}");
             None
@@ -401,16 +373,10 @@ fn map_server_event(sid: Sid, event: AsrEvent) -> Option<Event> {
             tracing::debug!(sid, "ignoring unparsable frame: {text}");
             None
         }
-        AsrEvent::Closed { code, reason, .. } => {
-            if protocol::is_session_rejected(None, Some(&reason)) {
-                Some(Event::SessionRejected { sid })
-            } else {
-                Some(Event::ConnectionLost {
-                    sid,
-                    reason: format!("closed ({code:?}, {reason:?})"),
-                })
-            }
-        }
+        AsrEvent::Closed { code, reason } => Some(Event::ConnectionLost {
+            sid,
+            reason: format!("closed ({code:?}, {reason:?})"),
+        }),
         AsrEvent::Failed(reason) => Some(Event::ConnectionLost { sid, reason }),
     }
 }

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Local UI pages only. The Doubao login window gets no capability.",
+  "description": "Local UI pages only.",
   "windows": ["overlay", "settings"],
   "permissions": ["core:default"]
 }

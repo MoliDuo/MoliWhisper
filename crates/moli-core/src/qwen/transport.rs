@@ -29,29 +29,19 @@ pub struct ConnectOptions {
 }
 
 impl ConnectOptions {
-    /// `None` when there is no key or the URL is not a WebSocket URL. A blank
-    /// URL or model means the default.
-    pub fn new(url: &str, api_key: &str, model: &str) -> Option<Self> {
+    /// The default service and model; `None` when there is no key.
+    pub fn new(api_key: &str) -> Option<Self> {
         let api_key = api_key.trim();
         if api_key.is_empty() {
             return None;
         }
-        let url = Url::parse(non_blank(url, DEFAULT_URL)).ok()?;
-        if !matches!(url.scheme(), "ws" | "wss") {
-            return None;
-        }
         Some(Self {
-            url,
+            url: Url::parse(DEFAULT_URL).expect("the default URL is valid"),
             api_key: api_key.to_string(),
-            model: non_blank(model, DEFAULT_MODEL).to_string(),
+            model: DEFAULT_MODEL.to_string(),
             timeout: Duration::from_secs(5),
         })
     }
-}
-
-fn non_blank<'a>(value: &'a str, default: &'a str) -> &'a str {
-    let value = value.trim();
-    if value.is_empty() { default } else { value }
 }
 
 /// Opens a session: connects, starts the task and waits until the service is
@@ -68,7 +58,6 @@ pub async fn connect(
         stream,
         Handshake {
             elapsed: started.elapsed(),
-            set_cookies: Vec::new(),
         },
     ))
 }
@@ -86,7 +75,10 @@ async fn open(opts: &ConnectOptions) -> Result<(QwenSink, QwenStream), ConnectEr
     let ws = match net::connect_websocket(request).await {
         Ok((ws, _)) => ws,
         Err(tungstenite::Error::Http(response)) => {
-            return Err(ConnectError::Rejected(response.status().as_u16()));
+            return Err(match response.status().as_u16() {
+                401 | 403 => ConnectError::KeyRejected,
+                status => ConnectError::Rejected(status),
+            });
         }
         Err(e) => return Err(ConnectError::Transient(e.to_string())),
     };
@@ -104,7 +96,7 @@ async fn open(opts: &ConnectOptions) -> Result<(QwenSink, QwenStream), ConnectEr
                 Ok(Frame::Started) => break,
                 Ok(Frame::Failed { code, message }) => {
                     return Err(match code.as_str() {
-                        "InvalidApiKey" | "AccessDenied" => ConnectError::Rejected(401),
+                        "InvalidApiKey" | "AccessDenied" => ConnectError::KeyRejected,
                         _ => ConnectError::Transient(format!("{code}: {message}")),
                     });
                 }
@@ -128,7 +120,6 @@ async fn open(opts: &ConnectOptions) -> Result<(QwenSink, QwenStream), ConnectEr
         QwenStream {
             inner: stream,
             finished_text: String::new(),
-            received_any: true,
             done: false,
         },
     ))
@@ -136,10 +127,7 @@ async fn open(opts: &ConnectOptions) -> Result<(QwenSink, QwenStream), ConnectEr
 
 /// Checks the key, the model and the URL by starting and ending a task.
 pub async fn check(opts: &ConnectOptions) -> Result<Duration, String> {
-    let (mut sink, _stream, handshake) = connect(opts).await.map_err(|e| match e {
-        ConnectError::Rejected(401 | 403) => "the API key was rejected".to_string(),
-        other => other.to_string(),
-    })?;
+    let (mut sink, _stream, handshake) = connect(opts).await.map_err(|e| e.to_string())?;
     let _ = sink.finish().await;
     let _ = sink.close().await;
     Ok(handshake.elapsed)
@@ -177,7 +165,6 @@ pub struct QwenStream {
     inner: SplitStream<WsStream>,
     /// The sentences that are over; the service only reports the current one.
     finished_text: String,
-    received_any: bool,
     done: bool,
 }
 
@@ -211,11 +198,7 @@ impl QwenStream {
                     let (code, reason) = frame
                         .map(|f| (Some(u16::from(f.code)), f.reason.to_string()))
                         .unwrap_or((None, String::new()));
-                    AsrEvent::Closed {
-                        code,
-                        reason,
-                        received_any: self.received_any,
-                    }
+                    AsrEvent::Closed { code, reason }
                 }
                 Some(Ok(_)) => continue,
                 Some(Err(tungstenite::Error::ConnectionClosed)) | None => {
@@ -223,7 +206,6 @@ impl QwenStream {
                     AsrEvent::Closed {
                         code: None,
                         reason: String::new(),
-                        received_any: self.received_any,
                     }
                 }
                 Some(Err(e)) => {

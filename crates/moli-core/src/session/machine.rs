@@ -45,19 +45,6 @@ impl Default for Timings {
     }
 }
 
-impl Timings {
-    /// For the Doubao IME backend: its handshake takes two more round trips
-    /// (2–4 s in all, now and then 6), and its text sometimes lags by seconds.
-    pub fn ime() -> Self {
-        Self {
-            connect_attempt: Duration::from_secs(6),
-            connect_deadline: Duration::from_secs(12),
-            finalize: Duration::from_secs(6),
-            ..Self::default()
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
     Idle,
@@ -95,7 +82,7 @@ pub enum Event {
     ServerFinished {
         sid: Sid,
     },
-    SessionRejected {
+    KeyRejected {
         sid: Sid,
     },
     ConnectionLost {
@@ -145,8 +132,6 @@ pub enum Effect {
         sid: Sid,
         text: String,
     },
-    /// Flag the stored login as refused by the server (never delete it).
-    MarkRejected,
     Outcome(Outcome),
 }
 
@@ -160,9 +145,10 @@ pub enum Outcome {
     /// Nothing was recognized.
     Empty,
     Cancelled,
-    /// No usable login; nothing was started.
-    NeedLogin,
-    SessionRejected,
+    /// No API key; nothing was started.
+    NoKey,
+    /// The service refused the API key.
+    KeyRejected,
     Network(String),
     Microphone(String),
     DeliveryFailed(String),
@@ -210,11 +196,6 @@ impl Machine {
 
     pub fn timings(&self) -> &Timings {
         &self.timings
-    }
-
-    /// Takes effect with the next session's timers.
-    pub fn set_timings(&mut self, timings: Timings) {
-        self.timings = timings;
     }
 
     pub fn phase(&self) -> Phase {
@@ -395,12 +376,8 @@ impl Machine {
             }
             (
                 State::Connecting { .. } | State::Recording { .. } | State::Finalizing { .. },
-                Event::SessionRejected { .. },
-            ) => {
-                let mut effects = self.fail(Outcome::SessionRejected);
-                effects.insert(1, E::MarkRejected);
-                effects
-            }
+                Event::KeyRejected { .. },
+            ) => self.fail(Outcome::KeyRejected),
             (
                 State::Connecting { .. } | State::Recording { .. },
                 Event::AudioFailed { reason, .. },
@@ -464,7 +441,7 @@ fn event_sid(event: &Event) -> Option<Sid> {
         | Event::ConnectFailed { sid, .. }
         | Event::Text { sid, .. }
         | Event::ServerFinished { sid }
-        | Event::SessionRejected { sid }
+        | Event::KeyRejected { sid }
         | Event::ConnectionLost { sid, .. }
         | Event::AudioFailed { sid, .. }
         | Event::Timeout { sid, .. }
@@ -618,7 +595,7 @@ mod tests {
     }
 
     #[test]
-    fn rejection_marks_and_never_retries() {
+    fn rejected_key_is_never_retried() {
         for connected in [false, true] {
             let mut m = machine();
             m.step(Event::Start);
@@ -626,15 +603,8 @@ mod tests {
             if connected {
                 m.step(Event::Connected { sid });
             }
-            let fx = m.step(Event::SessionRejected { sid });
-            assert_eq!(
-                fx,
-                vec![
-                    E::Disconnect,
-                    E::MarkRejected,
-                    E::Outcome(Outcome::SessionRejected)
-                ]
-            );
+            let fx = m.step(Event::KeyRejected { sid });
+            assert_eq!(fx, vec![E::Disconnect, E::Outcome(Outcome::KeyRejected)]);
             assert_eq!(m.phase(), Phase::Idle);
         }
     }
@@ -795,7 +765,7 @@ mod tests {
         for e in [
             text(old, "旧"),
             Event::ServerFinished { sid: old },
-            Event::SessionRejected { sid: old },
+            Event::KeyRejected { sid: old },
             Event::Delivered {
                 sid: old,
                 result: Ok(()),

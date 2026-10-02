@@ -6,7 +6,6 @@ cd "$ROOT"
 REPO="MoliDuo/MoliWhisper"
 APP_NAME="MoliWhisper"
 BUNDLE_ID="com.moliduo.moliwhisper"
-# Lowercase on purpose: it never matches the legacy Swift app's "MoliWhisper" process.
 BINARY_NAME="moliwhisper"
 
 # Sign with the local Apple Development certificate so macOS keeps the

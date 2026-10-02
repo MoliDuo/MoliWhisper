@@ -1,40 +1,29 @@
-//! Wires the session controller to the app: login, microphone, delivery.
+//! Wires the session controller to the app: API key, microphone, delivery.
 
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use moli_core::asr::Backend;
 use moli_core::audio::{self, AudioInput};
-use moli_core::config::{BackendKind, OrganizerKind};
-use moli_core::doubao::web::ConnectOptions;
-use moli_core::organize::{OpenAiOrganizer, Organizer};
+use moli_core::organize::Organizer;
 use moli_core::qwen;
 use moli_core::session::{Controller, Env, Outcome, Phase, Timings, Update};
 use tauri::{AppHandle, Manager, Runtime};
 
-use crate::auth::{Auth, AuthStatus};
 use crate::hotkey::HotkeyState;
-use crate::ime::{Ime, OPENAI_ORGANIZE_TIMEOUT, ORGANIZE_TIMEOUT};
 use crate::settings::Settings;
-use crate::{login, overlay, platform, state_changed};
+use crate::{overlay, platform, windows};
+
+/// Longer than this and the text is pasted as it was recognized.
+const ORGANIZE_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct Dictation(pub Controller);
 
 pub fn init<R: Runtime>(app: &AppHandle<R>) {
     let env = Arc::new(AppEnv { app: app.clone() });
-    let backend = app.state::<Settings>().get().backend;
-    let (controller, actor) = Controller::new(env, timings(backend));
+    let (controller, actor) = Controller::new(env, Timings::default());
     tauri::async_runtime::spawn(actor);
     app.manage(Dictation(controller));
-}
-
-pub fn timings(backend: BackendKind) -> Timings {
-    match backend {
-        BackendKind::Web => Timings::default(),
-        BackendKind::Ime => Timings::ime(),
-        BackendKind::Qwen => Timings::default(),
-    }
 }
 
 /// Records for `secs` seconds, then stops (`--dictate`, for testing).
@@ -47,56 +36,13 @@ pub fn dictate_for<R: Runtime>(app: &AppHandle<R>, secs: u64) {
     });
 }
 
-/// The organizer the settings ask for and how long to wait for it; `None`
-/// (the text is pasted as it is) when the provider is not set up.
-fn organizer<R: Runtime>(
-    app: &AppHandle<R>,
-    config: &moli_core::config::OrganizerConfig,
-) -> Option<(Organizer, Duration)> {
-    match config.provider {
-        OrganizerKind::DoubaoIme => Some((
-            Organizer::DoubaoIme(app.state::<Ime>().0.clone()),
-            ORGANIZE_TIMEOUT,
-        )),
-        OrganizerKind::Openai => match OpenAiOrganizer::new(&config.openai) {
-            Some(o) => Some((Organizer::OpenAi(o), OPENAI_ORGANIZE_TIMEOUT)),
-            None => {
-                log::warn!("the OpenAI organizer needs a base URL and a model");
-                None
-            }
-        },
-    }
-}
-
 struct AppEnv<R: Runtime> {
     app: AppHandle<R>,
 }
 
 impl<R: Runtime> Env for AppEnv<R> {
-    fn backend(&self) -> Option<Backend> {
-        let config = self.app.state::<Settings>().get();
-        match config.backend {
-            BackendKind::Ime => return Some(Backend::Ime(self.app.state::<Ime>().0.clone())),
-            BackendKind::Qwen => {
-                let q = &config.qwen;
-                let opts = qwen::ConnectOptions::new(&q.url, &q.api_key, &q.model);
-                if opts.is_none() {
-                    log::warn!("the Qwen API key is missing or the URL is invalid");
-                }
-                return opts.map(Backend::Qwen);
-            }
-            BackendKind::Web => {}
-        }
-        let auth = self.app.state::<Auth>();
-        match auth.status() {
-            AuthStatus::Active { .. } => {}
-            AuthStatus::LoggedOut | AuthStatus::Rejected | AuthStatus::Expired => return None,
-        }
-        let creds = auth.credentials()?;
-        Some(Backend::Web(ConnectOptions::new(
-            &creds,
-            &config.asr.param_overrides,
-        )))
+    fn connect_options(&self) -> Option<qwen::ConnectOptions> {
+        qwen::ConnectOptions::new(&self.app.state::<Settings>().get().qwen.api_key)
     }
 
     fn start_audio(&self) -> AudioInput {
@@ -113,23 +59,23 @@ impl<R: Runtime> Env for AppEnv<R> {
         let config = app.state::<Settings>().get();
         let organizer = config
             .organize
-            .then(|| organizer(&app, &config.organizer))
+            .then(|| {
+                Organizer::deepseek(&config.deepseek.api_key, config.deepseek.prompt.as_deref())
+            })
             .flatten();
         async move {
             let text = match organizer {
-                Some((organizer, timeout)) => {
+                Some(organizer) => {
                     overlay::organizing(&app);
-                    organizer.organize(&text, timeout).await.unwrap_or(text)
+                    organizer
+                        .organize(&text, ORGANIZE_TIMEOUT)
+                        .await
+                        .unwrap_or(text)
                 }
                 None => text,
             };
             platform::paste(&app, text, config.restore_clipboard).await
         }
-    }
-
-    fn session_rejected(&self) {
-        self.app.state::<Auth>().mark_rejected();
-        state_changed(&self.app);
     }
 
     fn update(&self, update: Update) {
@@ -145,16 +91,9 @@ impl<R: Runtime> Env for AppEnv<R> {
         if let Update::Outcome(outcome) = &update {
             match outcome {
                 Outcome::Done { .. } | Outcome::Empty | Outcome::Cancelled => {}
-                Outcome::NeedLogin | Outcome::SessionRejected
-                    if self.app.state::<Settings>().get().backend != BackendKind::Web =>
-                {
-                    log::warn!("dictation is not set up: {outcome:?}");
-                }
-                Outcome::NeedLogin | Outcome::SessionRejected => {
-                    log::warn!("dictation needs a login: {outcome:?}");
-                    let fresh = matches!(self.app.state::<Auth>().status(), AuthStatus::Rejected)
-                        || *outcome == Outcome::SessionRejected;
-                    login::open(&self.app, fresh);
+                Outcome::NoKey | Outcome::KeyRejected => {
+                    log::warn!("dictation needs a Qwen API key: {outcome:?}");
+                    windows::show_settings(&self.app);
                 }
                 other => log::warn!("dictation failed: {other:?}"),
             }

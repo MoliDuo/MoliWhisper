@@ -29,7 +29,7 @@
     "active": true,
     "targets": ["app", "dmg", "nsis"],
     "category": "Productivity",
-    "shortDescription": "豆包语音输入",
+    "shortDescription": "语音输入",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

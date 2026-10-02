@@ -10,6 +10,5 @@ mod transport;
 
 pub use transport::{ConnectOptions, QwenSink, QwenStream, check, connect};
 
-/// The international (MaaS) endpoint of the official examples.
 pub const DEFAULT_URL: &str = "wss://maas.qwencloudapi.com/api-ws/v1/inference";
 pub const DEFAULT_MODEL: &str = "qwen-audio-3.0-asr-flash-streaming";

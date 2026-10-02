@@ -127,22 +127,6 @@ button:disabled {
 .row[hidden] {
   display: none;
 }
-.choices {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 4px 0 6px;
-}
-.choice {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  cursor: default;
-}
-.choice input {
-  margin-top: 2px;
-}
-.choice .note,
 .check .note {
   display: block;
 }
@@ -178,9 +162,6 @@ code {
   user-select: text;
   -webkit-user-select: text;
 }
-#overrides-msg.bad {
-  color: var(--bad);
-}
 footer {
   color: var(--muted);
   font-size: 11px;
@@ -206,8 +187,7 @@ footer {
   width: 72px;
 }
 input:not([type]),
-input[type="password"],
-select {
+input[type="password"] {
   font: inherit;
   color: var(--fg);
   background: var(--bg);
@@ -217,10 +197,10 @@ select {
   min-width: 0;
 }
 #qwen-msg.bad,
-#openai-msg.bad {
+#deepseek-msg.bad {
   color: var(--bad);
 }
 #qwen-msg.ok,
-#openai-msg.ok {
+#deepseek-msg.ok {
   color: var(--ok);
 }

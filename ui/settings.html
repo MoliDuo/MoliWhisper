@@ -9,89 +9,40 @@
     <main>
       <div id="error" class="banner warn" hidden></div>
       <section>
-        <h2>识别方式</h2>
-        <div class="choices" role="radiogroup">
-          <label class="choice">
-            <input type="radio" name="backend" value="web" />
-            <span>
-              豆包网页版
-              <span class="note">使用豆包网页版的登录状态。</span>
-            </span>
-          </label>
-          <label class="choice">
-            <input type="radio" name="backend" value="ime" />
-            <span>
-              豆包输入法
-              <span class="note">免登录，使用豆包输入法的非官方接口，可能随时失效。</span>
-            </span>
-          </label>
-          <label class="choice">
-            <input type="radio" name="backend" value="qwen" />
-            <span>
-              千问（阿里云）
-              <span class="note">阿里云百炼的千问实时语音识别，边说边出字，需要 API Key（按量计费）。</span>
-            </span>
-          </label>
-        </div>
-        <div id="qwen" class="fields" hidden>
+        <h2>语音识别</h2>
+        <div class="fields">
           <label class="field">
-            <span class="label">API Key</span>
+            <span class="label">千问 API Key</span>
             <input id="qwen-key" class="grow" type="password" spellcheck="false" placeholder="sk-…" />
-          </label>
-          <label class="field">
-            <span class="label">模型</span>
-            <input id="qwen-model" class="grow" spellcheck="false" placeholder="qwen-audio-3.0-asr-flash-streaming" />
-          </label>
-          <label class="field">
-            <span class="label">地址</span>
-            <input id="qwen-url" class="grow" spellcheck="false" placeholder="wss://maas.qwencloudapi.com/api-ws/v1/inference" />
           </label>
           <div class="row">
             <span id="qwen-msg" class="grow note"></span>
             <button id="qwen-test">保存并测试</button>
           </div>
         </div>
-        <div id="account" class="row">
-          <div id="auth-label" class="grow value">—</div>
-          <button id="login">登录…</button>
-          <button id="logout" class="subtle">退出登录</button>
-        </div>
+      </section>
+
+      <section>
+        <h2>自动整理</h2>
         <label class="row check">
           <span class="grow">
-            自动整理（口语 → 书面语）
-            <span class="note">识别完先去掉口头语、理顺语句再粘贴；整理失败或超过 5 秒时粘贴原文。</span>
+            口语 → 书面语
+            <span class="note">识别完先去掉口头语、理顺语句再粘贴；整理失败或超过 15 秒时粘贴原文。</span>
           </span>
           <input id="organize" type="checkbox" />
         </label>
-        <div id="organizer" class="fields">
+        <div id="deepseek" class="fields">
           <label class="field">
-            <span class="label">整理服务</span>
-            <select id="organizer-provider" class="grow">
-              <option value="doubao_ime">豆包输入法（免配置）</option>
-              <option value="openai">OpenAI 兼容接口（自备大模型）</option>
-            </select>
+            <span class="label">DeepSeek API Key</span>
+            <input id="deepseek-key" class="grow" type="password" spellcheck="false" placeholder="sk-…" />
           </label>
-          <div id="openai" class="fields" hidden>
-            <label class="field">
-              <span class="label">Base URL</span>
-              <input id="openai-base" class="grow" spellcheck="false" placeholder="https://api.deepseek.com/v1" />
-            </label>
-            <label class="field">
-              <span class="label">API Key</span>
-              <input id="openai-key" class="grow" type="password" spellcheck="false" />
-            </label>
-            <label class="field">
-              <span class="label">模型</span>
-              <input id="openai-model" class="grow" spellcheck="false" placeholder="deepseek-chat" />
-            </label>
-            <label class="field top">
-              <span class="label">提示词</span>
-              <textarea id="openai-prompt" class="grow" rows="4"></textarea>
-            </label>
-            <div class="row">
-              <span id="openai-msg" class="grow note"></span>
-              <button id="openai-test">保存并测试</button>
-            </div>
+          <label class="field top">
+            <span class="label">提示词</span>
+            <textarea id="deepseek-prompt" class="grow" rows="4"></textarea>
+          </label>
+          <div class="row">
+            <span id="deepseek-msg" class="grow note"></span>
+            <button id="deepseek-test">保存并测试</button>
           </div>
         </div>
       </section>
@@ -158,14 +109,6 @@
       <section>
         <details id="advanced">
           <summary>高级</summary>
-          <p class="note">
-            豆包接口的 URL 参数覆盖（JSON 对象）。值为字符串时替换或新增该参数，为 null 时删除该参数。留空表示不覆盖。
-          </p>
-          <textarea id="overrides" spellcheck="false" rows="5" placeholder='{"pc_version": "3.38.5"}'></textarea>
-          <div class="row">
-            <span id="overrides-msg" class="grow note"></span>
-            <button id="overrides-save">保存</button>
-          </div>
           <p class="note">配置文件：<code id="config-path"></code></p>
         </details>
       </section>

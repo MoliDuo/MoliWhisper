@@ -1,4 +1,5 @@
-//! User settings, kept as typed JSON next to the credentials.
+//! User settings, kept as typed JSON in the app data directory, readable
+//! only by the user (mode 0600): the API keys live here too.
 //!
 //! Every field has a default, so a missing file, a missing key or a file
 //! from an older version all load. A file that does not parse is moved
@@ -9,10 +10,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::doubao::web::params::Overrides;
 use crate::hotkey::{Hotkey, Mode};
-use crate::store::write_atomic;
 
+/// App data directory name; matches the bundle identifier.
+pub const APP_ID: &str = "com.moliduo.moliwhisper";
 pub const FILE_NAME: &str = "config.json";
 pub const VERSION: u32 = 1;
 
@@ -24,15 +25,10 @@ pub struct Config {
     pub mode: Mode,
     /// Put the previous clipboard back after pasting.
     pub restore_clipboard: bool,
-    /// Which recognition service to use.
-    pub backend: BackendKind,
     /// Rewrite the transcript as written text before pasting.
     pub organize: bool,
-    pub asr: AsrConfig,
-    pub ime: ImeConfig,
     pub qwen: QwenConfig,
-    /// Which service rewrites the transcript, when `organize` is on.
-    pub organizer: OrganizerConfig,
+    pub deepseek: DeepSeekConfig,
 }
 
 impl Default for Config {
@@ -42,89 +38,49 @@ impl Default for Config {
             hotkey: Hotkey::default(),
             mode: Mode::default(),
             restore_clipboard: true,
-            backend: BackendKind::default(),
             organize: false,
-            asr: AsrConfig::default(),
-            ime: ImeConfig::default(),
             qwen: QwenConfig::default(),
-            organizer: OrganizerConfig::default(),
+            deepseek: DeepSeekConfig::default(),
         }
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct AsrConfig {
-    /// Merged over the built-in URL parameters; `null` removes one.
-    pub param_overrides: Overrides,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BackendKind {
-    /// The Doubao web ASR, with the login from the Doubao website.
-    #[default]
-    Web,
-    /// The Doubao input method's ASR; anonymous, no login.
-    Ime,
-    /// Qwen speech recognition on Alibaba Cloud, with an API key.
-    Qwen,
-}
-
-impl<'de> Deserialize<'de> for BackendKind {
-    /// An unknown name (a backend from another version) falls back to the default.
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        Ok(match String::deserialize(d)?.as_str() {
-            "ime" => Self::Ime,
-            "qwen" => Self::Qwen,
-            _ => Self::Web,
-        })
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ImeConfig {
-    /// The device id presented to the IME service, made on first use.
-    pub device_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// Qwen speech recognition on Alibaba Cloud.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct QwenConfig {
     pub api_key: String,
-    /// Blank means [`crate::qwen::DEFAULT_MODEL`].
-    pub model: String,
-    /// Blank means [`crate::qwen::DEFAULT_URL`].
-    pub url: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// DeepSeek, for the rewrite.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct OrganizerConfig {
-    pub provider: OrganizerKind,
-    pub openai: OpenAiConfig,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OrganizerKind {
-    /// The Doubao input method's rewrite; no setup.
-    #[default]
-    DoubaoIme,
-    /// Any OpenAI-compatible chat completions API.
-    Openai,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct OpenAiConfig {
-    /// Up to and including the version, e.g. `https://api.deepseek.com/v1`.
-    pub base_url: String,
+pub struct DeepSeekConfig {
     pub api_key: String,
-    pub model: String,
     /// System prompt; the built-in one when `None` or blank.
     pub prompt: Option<String>,
+}
+
+// Keys stay out of the logs.
+impl std::fmt::Debug for QwenConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QwenConfig")
+            .field("api_key", &redacted(&self.api_key))
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for DeepSeekConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeepSeekConfig")
+            .field("api_key", &redacted(&self.api_key))
+            .field("prompt", &self.prompt)
+            .finish()
+    }
+}
+
+fn redacted(key: &str) -> &'static str {
+    if key.is_empty() { "(none)" } else { "(set)" }
 }
 
 pub struct ConfigStore {
@@ -172,6 +128,25 @@ impl ConfigStore {
     }
 }
 
+/// Write to a temp file in the same directory, then rename over the target.
+fn write_atomic(path: &Path, data: &[u8]) -> io::Result<()> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| io::Error::other("path has no parent"))?;
+    std::fs::create_dir_all(dir)?;
+    let tmp = path.with_extension("tmp");
+    {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+        let mut f = opts.open(&tmp)?;
+        io::Write::write_all(&mut f, data)?;
+        f.sync_all()?;
+    }
+    std::fs::rename(&tmp, path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,10 +165,10 @@ mod tests {
     }
 
     #[test]
-    fn round_trip() {
+    fn round_trip_and_permissions() {
         let dir = temp_dir("round");
         let store = ConfigStore::open(&dir);
-        let mut c = Config {
+        let c = Config {
             hotkey: Hotkey::Combo {
                 mods: Mods {
                     ctrl: true,
@@ -203,33 +178,28 @@ mod tests {
             },
             mode: Mode::PushToTalk,
             restore_clipboard: false,
-            backend: BackendKind::Ime,
             organize: true,
-            ime: ImeConfig {
-                device_id: Some("1234567890123456".into()),
-            },
             qwen: QwenConfig {
-                api_key: "sk-x".into(),
-                model: "m".into(),
-                url: "wss://example.com/ws".into(),
+                api_key: "sk-q".into(),
             },
-            organizer: OrganizerConfig {
-                provider: OrganizerKind::Openai,
-                openai: OpenAiConfig {
-                    base_url: "https://example.com/v1".into(),
-                    api_key: "k".into(),
-                    model: "m".into(),
-                    prompt: Some("p".into()),
-                },
+            deepseek: DeepSeekConfig {
+                api_key: "sk-d".into(),
+                prompt: Some("p".into()),
             },
             ..Config::default()
         };
-        c.asr
-            .param_overrides
-            .insert("pc_version".into(), Some("3.40.0".into()));
-        c.asr.param_overrides.insert("region".into(), None);
         store.save(&c).unwrap();
         assert_eq!(store.load(), c);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(store.path())
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -247,25 +217,9 @@ mod tests {
             }
         );
         assert!(c.restore_clipboard);
-        assert_eq!(c.backend, BackendKind::Web);
         assert!(!c.organize);
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn old_file_without_new_sections_loads() {
-        let dir = temp_dir("old");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(FILE_NAME), r#"{"organize":true,"backend":"ime"}"#).unwrap();
-        let c = ConfigStore::open(&dir).load();
-        assert!(c.organize);
-        assert_eq!(c.backend, BackendKind::Ime);
-        assert_eq!(c.organizer.provider, OrganizerKind::DoubaoIme);
         assert_eq!(c.qwen, QwenConfig::default());
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(FILE_NAME), r#"{"backend":"self_hosted"}"#).unwrap();
-        assert_eq!(ConfigStore::open(&dir).load().backend, BackendKind::Web);
+        assert_eq!(c.deepseek, DeepSeekConfig::default());
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -279,5 +233,21 @@ mod tests {
         assert!(!dir.join(FILE_NAME).exists());
         assert!(dir.join("config.json.bad").exists());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn debug_output_hides_the_keys() {
+        let c = Config {
+            qwen: QwenConfig {
+                api_key: "SECRET-Q".into(),
+            },
+            deepseek: DeepSeekConfig {
+                api_key: "SECRET-D".into(),
+                prompt: None,
+            },
+            ..Config::default()
+        };
+        let shown = format!("{c:?}");
+        assert!(!shown.contains("SECRET"), "{shown}");
     }
 }

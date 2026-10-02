@@ -1,6 +1,6 @@
 [package]
 name = "moliwhisper"
-description = "Hold-to-talk dictation with the Doubao web ASR"
+description = "Hold-to-talk dictation with Qwen speech recognition"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,7 +16,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 moli-core = { path = "../crates/moli-core" }
-anyhow.workspace = true
 log = "0.4"
 serde.workspace = true
 serde_json.workspace = true

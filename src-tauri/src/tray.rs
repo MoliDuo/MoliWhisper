@@ -1,14 +1,12 @@
-use moli_core::config::BackendKind;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuBuilder, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Runtime};
 
-use crate::auth::{Auth, AuthStatus};
 use crate::hotkey::{self, HookStatus, HotkeyState};
 use crate::settings::Settings;
 use crate::updater::{Phase, UpdateState};
-use crate::{login, platform, updater, windows};
+use crate::{platform, updater, windows};
 
 pub const TRAY_ID: &str = "main";
 
@@ -20,13 +18,6 @@ pub fn create<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .menu(&build_menu(app)?)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "login" => {
-                let fresh = matches!(app.state::<Auth>().status(), AuthStatus::Rejected);
-                login::open(app, fresh);
-            }
-            "logout" => {
-                tauri::async_runtime::spawn(login::logout(app.clone()));
-            }
             "accessibility" => {
                 platform::request_accessibility();
                 platform::open_accessibility_settings();
@@ -40,7 +31,7 @@ pub fn create<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Rebuilds the menu after the login state changed.
+/// Rebuilds the menu after a setting changed.
 pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
@@ -54,10 +45,10 @@ pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
 }
 
 fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
-    let (label, login_label, logged_in) = match app.state::<Settings>().get().backend {
-        BackendKind::Ime => ("识别：豆包输入法（免登录）".to_string(), None, false),
-        BackendKind::Qwen => ("识别：千问（阿里云）".to_string(), None, false),
-        BackendKind::Web => web_status(app.state::<Auth>().status()),
+    let label = if app.state::<Settings>().get().qwen.api_key.is_empty() {
+        "未填写千问 API Key"
+    } else {
+        "识别：千问（阿里云）"
     };
 
     let mut menu = MenuBuilder::new(app).item(&MenuItem::with_id(
@@ -67,12 +58,6 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         false,
         None::<&str>,
     )?);
-    if let Some(text) = login_label {
-        menu = menu.text("login", text);
-    }
-    if logged_in {
-        menu = menu.text("logout", "退出登录");
-    }
     menu = menu.separator().item(&MenuItem::with_id(
         app,
         "usage",
@@ -89,25 +74,6 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .separator()
         .text("quit", "退出 MoliWhisper")
         .build()
-}
-
-/// The status line, the login item (if any) and whether to offer logging out.
-fn web_status(status: AuthStatus) -> (String, Option<&'static str>, bool) {
-    match status {
-        AuthStatus::LoggedOut => ("未登录".to_string(), Some("登录豆包…"), false),
-        AuthStatus::Active {
-            days_left: Some(d),
-            expiring: true,
-        } => (format!("登录将在 {d} 天后过期"), Some("重新登录…"), true),
-        AuthStatus::Active {
-            days_left: Some(d), ..
-        } => (format!("已登录（{d} 天后过期）"), None, true),
-        AuthStatus::Active {
-            days_left: None, ..
-        } => ("已登录".to_string(), None, true),
-        AuthStatus::Rejected => ("登录已失效".to_string(), Some("重新登录…"), true),
-        AuthStatus::Expired => ("登录已过期".to_string(), Some("重新登录…"), true),
-    }
 }
 
 /// "检查更新…", greyed out with what it is doing while a check runs.

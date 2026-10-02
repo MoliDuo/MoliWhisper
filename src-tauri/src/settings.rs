@@ -14,7 +14,14 @@ impl Settings {
     pub fn load(data_dir: &Path) -> Self {
         let store = ConfigStore::open(data_dir);
         let config = store.load();
-        log::info!("settings: {config:?}");
+        log::info!(
+            "settings loaded: hotkey {:?}, mode {:?}, organize {}, qwen key {}, deepseek key {}",
+            config.hotkey,
+            config.mode,
+            config.organize,
+            !config.qwen.api_key.is_empty(),
+            !config.deepseek.api_key.is_empty()
+        );
         Self {
             store,
             config: Mutex::new(config),

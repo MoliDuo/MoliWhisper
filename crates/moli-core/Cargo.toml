@@ -1,6 +1,6 @@
 [package]
 name = "moli-core"
-description = "Platform-independent core of MoliWhisper: Doubao web and IME clients, session logic, audio DSP."
+description = "Platform-independent core of MoliWhisper: Qwen speech-recognition client, session logic, audio DSP."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,11 +8,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-base64 = "0.22"
 cpal = "0.18"
-dirs = "7"
 futures-util.workspace = true
-prost = "0.13"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
 rtrb = "0.4"
 rubato = "5"
@@ -25,8 +22,3 @@ tokio-tungstenite.workspace = true
 tracing.workspace = true
 url.workspace = true
 uuid.workspace = true
-
-[dev-dependencies]
-anyhow.workspace = true
-hound.workspace = true
-tracing-subscriber.workspace = true
