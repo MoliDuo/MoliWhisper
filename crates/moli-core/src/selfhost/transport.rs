@@ -1,104 +1,79 @@
-//! One WebSocket per session: connect with the login cookies, stream PCM up,
-//! read JSON events down.
+//! One WebSocket per session to the self-hosted server.
 
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
-use tokio_tungstenite::tungstenite::http::header::{COOKIE, ORIGIN, SET_COOKIE, USER_AGENT};
+use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::{self, Message};
 use url::Url;
 
-use super::credentials::Credentials;
-use super::params::{self, Overrides};
 use super::protocol::{self, FINISH_FRAME};
-use crate::asr::{AsrEvent, ConnectError, Handshake, SendError};
+use crate::asr::{AsrEvent, ConnectError, Handshake, SendError, ServerMsg};
 use crate::net::{self, WsStream};
 
-/// The browser the service is told it talks to.
-pub const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
-    AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
-
-/// Everything needed to open a session.
 #[derive(Clone)]
 pub struct ConnectOptions {
     pub url: Url,
-    pub cookie_header: String,
-    pub origin: Option<String>,
-    pub user_agent: Option<String>,
-    /// Budget for DNS + TCP + TLS + WebSocket handshake together. Some edges
-    /// stall TLS forever, so keep this short and retry instead.
+    /// Sent as a bearer token when not empty.
+    pub token: String,
+    /// Budget for DNS + TCP + WebSocket handshake together.
     pub timeout: Duration,
 }
 
 impl ConnectOptions {
-    /// Options for a session under `creds`, as a fresh browser tab would open it.
-    pub fn new(creds: &Credentials, overrides: &Overrides) -> Self {
-        Self {
-            url: params::url(&creds.identity(), &params::new_web_tab_id(), overrides),
-            cookie_header: creds.cookie_header(),
-            origin: Some(params::ORIGIN.to_string()),
-            user_agent: Some(DEFAULT_USER_AGENT.to_string()),
+    /// `None` when `url` is not a `ws://` or `wss://` URL.
+    pub fn new(url: &str, token: &str) -> Option<Self> {
+        let url = Url::parse(url.trim()).ok()?;
+        matches!(url.scheme(), "ws" | "wss").then(|| Self {
+            url,
+            token: token.trim().to_string(),
             timeout: Duration::from_secs(5),
-        }
+        })
     }
 }
 
-/// Opens a session.
 pub async fn connect(
     opts: &ConnectOptions,
-) -> Result<(WebSink, WebStream, Handshake), ConnectError> {
+) -> Result<(SelfHostSink, SelfHostStream, Handshake), ConnectError> {
     let started = Instant::now();
-    let (ws, set_cookies) = tokio::time::timeout(opts.timeout, handshake(opts))
+    let ws = tokio::time::timeout(opts.timeout, handshake(opts))
         .await
         .map_err(|_| ConnectError::Timeout)??;
     let (sink, stream) = ws.split();
     Ok((
-        WebSink { inner: sink },
-        WebStream {
+        SelfHostSink { inner: sink },
+        SelfHostStream {
             inner: stream,
+            pending: VecDeque::new(),
             received_any: false,
             done: false,
         },
         Handshake {
             elapsed: started.elapsed(),
-            set_cookies,
+            set_cookies: Vec::new(),
         },
     ))
 }
 
-async fn handshake(opts: &ConnectOptions) -> Result<(WsStream, Vec<String>), ConnectError> {
+async fn handshake(opts: &ConnectOptions) -> Result<WsStream, ConnectError> {
     let mut request = opts
         .url
         .as_str()
         .into_client_request()
         .map_err(|e| ConnectError::Transient(e.to_string()))?;
-    let headers = request.headers_mut();
-    let header = |v: &str| {
-        HeaderValue::from_str(v).map_err(|_| ConnectError::Transient("invalid header value".into()))
-    };
-    headers.insert(COOKIE, header(&opts.cookie_header)?);
-    if let Some(origin) = &opts.origin {
-        headers.insert(ORIGIN, header(origin)?);
+    if !opts.token.is_empty() {
+        let value = HeaderValue::from_str(&format!("Bearer {}", opts.token))
+            .map_err(|_| ConnectError::Transient("invalid token".into()))?;
+        request.headers_mut().insert(AUTHORIZATION, value);
     }
-    if let Some(ua) = &opts.user_agent {
-        headers.insert(USER_AGENT, header(ua)?);
-    }
-
     match net::connect_websocket(request).await {
-        Ok((ws, response)) => {
-            let set_cookies = response
-                .headers()
-                .get_all(SET_COOKIE)
-                .iter()
-                .filter_map(|v| v.to_str().ok().map(str::to_owned))
-                .collect();
-            Ok((ws, set_cookies))
-        }
+        Ok((ws, _)) => Ok(ws),
         Err(tungstenite::Error::Http(response)) => {
             Err(ConnectError::Rejected(response.status().as_u16()))
         }
@@ -106,18 +81,46 @@ async fn handshake(opts: &ConnectOptions) -> Result<(WsStream, Vec<String>), Con
     }
 }
 
-/// The sending half of a session.
-pub struct WebSink {
+/// Asks the server's `/healthz` (next to the WebSocket URL) and returns the
+/// model it reports.
+pub async fn health(url: &str, token: &str) -> Result<String, String> {
+    let mut url = Url::parse(url.trim()).map_err(|e| format!("invalid URL: {e}"))?;
+    let scheme = match url.scheme() {
+        "ws" => "http",
+        "wss" => "https",
+        _ => return Err("the URL must start with ws:// or wss://".into()),
+    };
+    url.set_scheme(scheme).map_err(|_| "invalid URL")?;
+    url.set_path("/healthz");
+    url.set_query(None);
+    let mut req = reqwest::Client::new()
+        .get(url)
+        .timeout(Duration::from_secs(5));
+    if !token.trim().is_empty() {
+        req = req.bearer_auth(token.trim());
+    }
+    let resp = req.send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status().as_u16()));
+    }
+    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(body
+        .get("model")
+        .and_then(|m| m.as_str())
+        .unwrap_or("?")
+        .to_string())
+}
+
+pub struct SelfHostSink {
     inner: SplitSink<WsStream, Message>,
 }
 
-impl WebSink {
+impl SelfHostSink {
     /// Sends a chunk of 16 kHz mono s16le PCM.
     pub async fn audio(&mut self, pcm: Vec<u8>) -> Result<(), SendError> {
         Ok(self.inner.send(Message::Binary(pcm.into())).await?)
     }
 
-    /// Tells the service the audio is over; it answers with the final result and `finish`.
     pub async fn finish(&mut self) -> Result<(), SendError> {
         Ok(self.inner.send(Message::Text(FINISH_FRAME.into())).await?)
     }
@@ -131,16 +134,20 @@ impl WebSink {
     }
 }
 
-/// The receiving half of a session.
-pub struct WebStream {
+pub struct SelfHostStream {
     inner: SplitStream<WsStream>,
+    /// Messages of one frame still to hand out (`final` makes two).
+    pending: VecDeque<ServerMsg>,
     received_any: bool,
     done: bool,
 }
 
-impl WebStream {
+impl SelfHostStream {
     /// Next event; `None` after `Closed` or `Failed` has been returned.
     pub async fn next(&mut self) -> Option<AsrEvent> {
+        if let Some(msg) = self.pending.pop_front() {
+            return Some(AsrEvent::Server(msg));
+        }
         if self.done {
             return None;
         }
@@ -149,7 +156,12 @@ impl WebStream {
                 Some(Ok(Message::Text(text))) => {
                     self.received_any = true;
                     match protocol::parse(&text) {
-                        Ok(msg) => AsrEvent::Server(msg),
+                        Ok(frame) => {
+                            let mut msgs = frame.into_msgs().into_iter();
+                            let first = msgs.next().expect("a frame gives at least one message");
+                            self.pending.extend(msgs);
+                            AsrEvent::Server(first)
+                        }
                         Err(_) => AsrEvent::Garbage(text.chars().take(200).collect()),
                     }
                 }
@@ -164,7 +176,7 @@ impl WebStream {
                         received_any: self.received_any,
                     }
                 }
-                Some(Ok(_)) => continue, // binary, ping, pong
+                Some(Ok(_)) => continue,
                 Some(Err(tungstenite::Error::ConnectionClosed)) | None => {
                     self.done = true;
                     AsrEvent::Closed {

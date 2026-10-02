@@ -12,5 +12,4 @@
 //! `docs/doubao-wss-asr-spec.md` and `docs/doubao-ime.md`.
 
 pub mod ime;
-pub(crate) mod net;
 pub mod web;

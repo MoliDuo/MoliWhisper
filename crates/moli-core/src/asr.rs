@@ -1,9 +1,9 @@
 //! Speech recognition as the session sees it, whichever service does it.
 //!
 //! A session connects a [`Backend`] and gets a [`Sink`] for audio and a
-//! [`Stream`] of [`AsrEvent`]s. Both Doubao services, the web ASR (needs a
-//! login) and the IME (anonymous), look the same through here; see
-//! [`crate::doubao`] for the clients themselves.
+//! [`Stream`] of [`AsrEvent`]s. The Doubao services, the web ASR (needs a
+//! login) and the IME (anonymous), and our own server look the same through
+//! here; see [`crate::doubao`] and [`crate::selfhost`] for the clients.
 
 use std::time::Duration;
 
@@ -11,6 +11,7 @@ use tokio_tungstenite::tungstenite;
 
 use crate::doubao::ime::{ImeClient, ImeSink, ImeStream};
 use crate::doubao::web::{self, ConnectOptions, WebSink, WebStream};
+use crate::selfhost::{self, SelfHostSink, SelfHostStream};
 
 /// Audio goes up as 16 kHz mono s16le PCM.
 pub const SAMPLE_RATE: u32 = 16_000;
@@ -20,6 +21,7 @@ pub const SAMPLE_RATE: u32 = 16_000;
 pub enum Backend {
     Web(ConnectOptions),
     Ime(ImeClient),
+    SelfHosted(selfhost::ConnectOptions),
 }
 
 impl Backend {
@@ -42,6 +44,18 @@ impl Backend {
                 let (sink, stream, handshake) = ime.connect(timeout).await?;
                 Ok((Sink::Ime(sink), Stream::Ime(stream), handshake))
             }
+            Backend::SelfHosted(opts) => {
+                let opts = selfhost::ConnectOptions {
+                    timeout,
+                    ..opts.clone()
+                };
+                let (sink, stream, handshake) = selfhost::connect(&opts).await?;
+                Ok((
+                    Sink::SelfHosted(sink),
+                    Stream::SelfHosted(stream),
+                    handshake,
+                ))
+            }
         }
     }
 }
@@ -50,6 +64,7 @@ impl Backend {
 pub enum Sink {
     Web(WebSink),
     Ime(ImeSink),
+    SelfHosted(SelfHostSink),
 }
 
 impl Sink {
@@ -58,6 +73,7 @@ impl Sink {
         match self {
             Sink::Web(s) => s.audio(pcm).await,
             Sink::Ime(s) => s.audio(pcm),
+            Sink::SelfHosted(s) => s.audio(pcm).await,
         }
     }
 
@@ -66,6 +82,7 @@ impl Sink {
         match self {
             Sink::Web(s) => s.finish().await,
             Sink::Ime(s) => s.finish(),
+            Sink::SelfHosted(s) => s.finish().await,
         }
     }
 
@@ -73,6 +90,7 @@ impl Sink {
         match self {
             Sink::Web(s) => s.close().await,
             Sink::Ime(s) => s.close(),
+            Sink::SelfHosted(s) => s.close().await,
         }
     }
 }
@@ -81,6 +99,7 @@ impl Sink {
 pub enum Stream {
     Web(WebStream),
     Ime(ImeStream),
+    SelfHosted(SelfHostStream),
 }
 
 impl Stream {
@@ -89,6 +108,7 @@ impl Stream {
         match self {
             Stream::Web(s) => s.next().await,
             Stream::Ime(s) => s.next().await,
+            Stream::SelfHosted(s) => s.next().await,
         }
     }
 }

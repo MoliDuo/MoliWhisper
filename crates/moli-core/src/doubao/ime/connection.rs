@@ -16,7 +16,7 @@ use super::credentials::Credentials;
 use super::error::Failure;
 use super::wire::{Request, Response, event};
 use super::{AID, DEVICE_PLATFORM};
-use crate::doubao::net::{self, WsStream};
+use crate::net::{self, WsStream};
 
 const RESOURCE_ID: &str = "original.sami.ASR";
 const NAMESPACE: &str = "ASR";

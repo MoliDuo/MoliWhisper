@@ -14,7 +14,7 @@ use super::session::{Driver, ImeSink, ImeStream, Replay};
 use super::transcript::Transcript;
 use super::{Endpoints, USER_AGENT};
 use crate::asr::{ConnectError, Handshake};
-use crate::doubao::net;
+use crate::net;
 
 /// Budget for each HTTP call.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(15);

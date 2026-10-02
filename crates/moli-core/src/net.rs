@@ -1,4 +1,4 @@
-//! Networking both clients share.
+//! Networking the WebSocket clients share.
 
 use std::io;
 use std::net::SocketAddr;

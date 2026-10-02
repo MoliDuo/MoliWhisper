@@ -30,6 +30,10 @@ pub struct Config {
     pub organize: bool,
     pub asr: AsrConfig,
     pub ime: ImeConfig,
+    /// The self-hosted recognition server.
+    pub asr_server: AsrServerConfig,
+    /// Which service rewrites the transcript, when `organize` is on.
+    pub organizer: OrganizerConfig,
 }
 
 impl Default for Config {
@@ -43,6 +47,8 @@ impl Default for Config {
             organize: false,
             asr: AsrConfig::default(),
             ime: ImeConfig::default(),
+            asr_server: AsrServerConfig::default(),
+            organizer: OrganizerConfig::default(),
         }
     }
 }
@@ -62,6 +68,8 @@ pub enum BackendKind {
     Web,
     /// The Doubao input method's ASR; anonymous, no login.
     Ime,
+    /// Our own server running Qwen3-ASR; see `server/`.
+    SelfHosted,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -69,6 +77,43 @@ pub enum BackendKind {
 pub struct ImeConfig {
     /// The device id presented to the IME service, made on first use.
     pub device_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AsrServerConfig {
+    /// `ws://host:port/v1/stream` or `wss://…`.
+    pub url: String,
+    /// Bearer token; empty when the server wants none.
+    pub token: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OrganizerConfig {
+    pub provider: OrganizerKind,
+    pub openai: OpenAiConfig,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OrganizerKind {
+    /// The Doubao input method's rewrite; no setup.
+    #[default]
+    DoubaoIme,
+    /// Any OpenAI-compatible chat completions API.
+    Openai,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OpenAiConfig {
+    /// Up to and including the version, e.g. `https://api.deepseek.com/v1`.
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    /// System prompt; the built-in one when `None` or blank.
+    pub prompt: Option<String>,
 }
 
 pub struct ConfigStore {
@@ -152,6 +197,19 @@ mod tests {
             ime: ImeConfig {
                 device_id: Some("1234567890123456".into()),
             },
+            asr_server: AsrServerConfig {
+                url: "ws://box:8765/v1/stream".into(),
+                token: "t".into(),
+            },
+            organizer: OrganizerConfig {
+                provider: OrganizerKind::Openai,
+                openai: OpenAiConfig {
+                    base_url: "https://example.com/v1".into(),
+                    api_key: "k".into(),
+                    model: "m".into(),
+                    prompt: Some("p".into()),
+                },
+            },
             ..Config::default()
         };
         c.asr
@@ -179,6 +237,19 @@ mod tests {
         assert!(c.restore_clipboard);
         assert_eq!(c.backend, BackendKind::Web);
         assert!(!c.organize);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn old_file_without_new_sections_loads() {
+        let dir = temp_dir("old");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(FILE_NAME), r#"{"organize":true,"backend":"ime"}"#).unwrap();
+        let c = ConfigStore::open(&dir).load();
+        assert!(c.organize);
+        assert_eq!(c.backend, BackendKind::Ime);
+        assert_eq!(c.organizer.provider, OrganizerKind::DoubaoIme);
+        assert_eq!(c.asr_server, AsrServerConfig::default());
         let _ = std::fs::remove_dir_all(dir);
     }
 

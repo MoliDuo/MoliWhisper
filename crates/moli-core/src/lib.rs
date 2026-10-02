@@ -8,5 +8,8 @@ pub mod audio;
 pub mod config;
 pub mod doubao;
 pub mod hotkey;
+pub(crate) mod net;
+pub mod organize;
+pub mod selfhost;
 pub mod session;
 pub mod store;
