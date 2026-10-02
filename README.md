@@ -5,6 +5,32 @@
 
 > 本仓库 fork 自 [lilong7676/doubao-murmur](https://github.com/lilong7676/doubao-murmur)，现独立维护，只保留 macOS 版。原项目的 Windows / Linux 版本可在原仓库或本仓库的 Git 历史中找到。
 
+## 组成
+
+| 部分 | 在哪 | 做什么 |
+|------|------|--------|
+| **MoliWhisper**（macOS 菜单栏应用） | `src-tauri/`、`ui/`、`crates/moli-core/` | 全局快捷键、录音、悬浮窗、粘贴 |
+| **自建语音识别服务**（可选） | `server/`、`docker-compose.yml` | 在 NVIDIA 显卡机器上跑 Qwen3-ASR，流式识别 |
+
+语音识别有三种来源（设置里切换）：豆包网页版（需登录）、豆包输入法（免登录）、自建服务器。文字整理有两种：豆包输入法、任意 OpenAI 兼容接口。
+
+```
+ Mac ── MoliWhisper ──(Tailscale / 局域网，WebSocket)──▶ 服务器: docker compose up
+                                                          └─ Qwen3-ASR-1.7B + vLLM
+```
+
+### 自建语音识别服务
+
+在有 NVIDIA 显卡、装了 Docker 和 NVIDIA Container Toolkit 的机器上：
+
+```bash
+git clone https://github.com/MoliDuo/MoliWhisper && cd MoliWhisper
+cp .env.example .env      # 把 MOLI_ASR_TOKEN 改成一串随机字符
+docker compose up -d --build
+```
+
+然后在 MoliWhisper 设置里选「自建服务器」，地址填 `ws://<服务器>:8765/v1/stream`，Token 填同一个值。细节、参数和协议见 [`server/README.md`](server/README.md)。
+
 <p align="center">
   <img src="docs/screenshots/overlay_pannel.png" width="500" alt="语音识别悬浮窗">
 </p>
@@ -44,6 +70,18 @@
 ./scripts/install.sh
 ```
 
+### 自动更新
+
+装好之后应用会自己更新，做法和 MoliSwitch 一样：
+
+- 启动后和之后每小时检查一次 GitHub 上的最新版本，没有新版本或网络出错时不打扰。
+- 发现新版本时弹窗询问，选「安装并重启」才下载、替换并重启；选「稍后」则本次运行不再提醒这个版本。
+- 菜单栏的「检查更新…」和设置页「通用」里的按钮可以手动检查，会明确告诉你「已是最新版本」或失败原因。
+- 从 dmg 里直接运行（`/Volumes/…`）或被 macOS 放在只读临时位置运行时无法自我替换，会提示先拖进「应用程序」。
+- 每个版本都用同一张证书签名，更新后辅助功能和麦克风授权保留。
+
+更新清单是 `https://github.com/MoliDuo/MoliWhisper/releases/latest/download/latest.json`，其中的下载地址指向该版本自己的更新包，不用 `latest`。更新包用单独的更新密钥签名（公钥在 `tauri.conf.json`），应用只安装签名有效、且签名里的版本号与清单一致的包。
+
 ### 首次使用
 
 1. **授予辅助功能权限**：首次启动时，系统会提示授予辅助功能权限（系统设置 → 隐私与安全性 → 辅助功能），这是监听全局快捷键所必需的。
@@ -70,18 +108,6 @@
 5. 再次按下右 `⌥` 结束识别，文字会自动复制到剪贴板并粘贴到输入框
 6. 如果想取消，按 `ESC` 即可
 
-### 自动更新
-
-装好之后应用会自己更新，做法和 MoliSwitch 一样：
-
-- 启动后和之后每小时检查一次 GitHub 上的最新版本，没有新版本或网络出错时不打扰。
-- 发现新版本时弹窗询问，选「安装并重启」才下载、替换并重启；选「稍后」则本次运行不再提醒这个版本。
-- 菜单栏的「检查更新…」和设置页「通用」里的按钮可以手动检查，会明确告诉你「已是最新版本」或失败原因。
-- 从 dmg 里直接运行（`/Volumes/…`）或被 macOS 放在只读临时位置运行时无法自我替换，会提示先拖进「应用程序」。
-- 每个版本都用同一张证书签名，更新后辅助功能和麦克风授权保留。
-
-更新清单是 `https://github.com/MoliDuo/MoliWhisper/releases/latest/download/latest.json`，其中的下载地址指向该版本自己的更新包，不用 `latest`。更新包用单独的更新密钥签名（公钥在 `tauri.conf.json`），应用只安装签名有效、且签名里的版本号与清单一致的包。
-
 点击菜单中的「使用帮助」可查看快捷键和使用说明：
 
 <img src="docs/screenshots/help_pannel.png" width="400" alt="使用帮助">
@@ -94,10 +120,14 @@
 
 | 路径 | 内容 |
 |------|------|
-| [`crates/moli-core/`](crates/moli-core) | 纯 Rust 核心：豆包网页版与输入法两套 ASR 客户端、会话逻辑、音频处理。不依赖 Tauri，任何平台都能 `cargo test` |
+| [`crates/moli-core/`](crates/moli-core) | 纯 Rust 核心：豆包网页版与输入法两套 ASR 客户端、自建服务器客户端、文字整理（豆包 / OpenAI 兼容）、会话逻辑、音频处理。不依赖 Tauri，任何平台都能 `cargo test` |
 | [`src-tauri/`](src-tauri) | Tauri 应用：托盘、窗口、平台相关代码（热键、粘贴、悬浮窗、权限） |
+| [`server/`](server) | 自建语音识别服务（Python，Qwen3-ASR + vLLM，WebSocket 流式），见 [`server/README.md`](server/README.md) |
 | [`ui/`](ui) | 悬浮窗和设置页，Vite + 纯 TypeScript |
 | [`scripts/`](scripts) | 构建、安装、调试脚本 |
+| [`docker-compose.yml`](docker-compose.yml)、[`.env.example`](.env.example) | 一条命令起自建语音识别服务 |
+| [`docs/`](docs) | 豆包接口的逆向笔记和截图 |
+| [`legacy/`](legacy) | 旧的 Swift 版和当时的设计文档，新版能日常使用后删除 |
 
 ### 环境要求
 
@@ -130,14 +160,17 @@
 # 核心库测试
 cargo test -p moli-core
 
+# 服务端测试（不需要显卡）
+(cd server && uv run pytest)
+
 # 真实接口探针（凭证默认读旧版 app 保存的文件，或用 MOLI_CREDS 指定）
 ./scripts/asr-probe.sh --wav crates/moli-core/fixtures/zh_short.wav --repeat 20
 ```
 
 本地构建会自动找钥匙串里的 Apple Development 证书签名，这样重新构建后辅助功能和麦克风授权不会丢。CI 用同一张证书（仓库 Secrets 里的 `APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD`）签发布包，所以本地构建和下载的版本共用同一份授权。
 
+更新包另用一把更新密钥签名：`./scripts/setup-updater-keys.sh` 在本机生成一次，公钥写进 `tauri.conf.json`，私钥和密码存进 Secrets 的 `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。没有它 CI 不会发布。私钥丢了，已安装的版本就再也收不到自动更新，务必备份。
+
 ## License
 
 [MIT](LICENSE)
-更新包另用一把更新密钥签名：`./scripts/setup-updater-keys.sh` 在本机生成一次，公钥写进 `tauri.conf.json`，私钥和密码存进 Secrets 的 `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。没有它 CI 不会发布。私钥丢了，已安装的版本就再也收不到自动更新，务必备份。
-
