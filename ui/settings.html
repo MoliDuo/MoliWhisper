@@ -25,6 +25,27 @@
               <span class="note">免登录，使用豆包输入法的非官方接口，可能随时失效。</span>
             </span>
           </label>
+          <label class="choice">
+            <input type="radio" name="backend" value="self_hosted" />
+            <span>
+              自建服务器（Qwen3-ASR）
+              <span class="note">连接自己部署的识别服务，支持边说边出字，见仓库 server/。</span>
+            </span>
+          </label>
+        </div>
+        <div id="server" class="fields" hidden>
+          <label class="field">
+            <span class="label">地址</span>
+            <input id="server-url" class="grow" spellcheck="false" placeholder="ws://主机名:8765/v1/stream" />
+          </label>
+          <label class="field">
+            <span class="label">Token</span>
+            <input id="server-token" class="grow" type="password" spellcheck="false" placeholder="没有设置则留空" />
+          </label>
+          <div class="row">
+            <span id="server-msg" class="grow note"></span>
+            <button id="server-test">保存并测试</button>
+          </div>
         </div>
         <div id="account" class="row">
           <div id="auth-label" class="grow value">—</div>
@@ -38,6 +59,37 @@
           </span>
           <input id="organize" type="checkbox" />
         </label>
+        <div id="organizer" class="fields">
+          <label class="field">
+            <span class="label">整理服务</span>
+            <select id="organizer-provider" class="grow">
+              <option value="doubao_ime">豆包输入法（免配置）</option>
+              <option value="openai">OpenAI 兼容接口（自备大模型）</option>
+            </select>
+          </label>
+          <div id="openai" class="fields" hidden>
+            <label class="field">
+              <span class="label">Base URL</span>
+              <input id="openai-base" class="grow" spellcheck="false" placeholder="https://api.deepseek.com/v1" />
+            </label>
+            <label class="field">
+              <span class="label">API Key</span>
+              <input id="openai-key" class="grow" type="password" spellcheck="false" />
+            </label>
+            <label class="field">
+              <span class="label">模型</span>
+              <input id="openai-model" class="grow" spellcheck="false" placeholder="deepseek-chat" />
+            </label>
+            <label class="field top">
+              <span class="label">提示词</span>
+              <textarea id="openai-prompt" class="grow" rows="4"></textarea>
+            </label>
+            <div class="row">
+              <span id="openai-msg" class="grow note"></span>
+              <button id="openai-test">保存并测试</button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section>
@@ -90,6 +142,13 @@
           <span class="grow">粘贴后恢复原来的剪贴板内容</span>
           <input id="restore" type="checkbox" />
         </label>
+        <div class="row">
+          <span class="grow">
+            更新
+            <span class="note">每小时检查一次 GitHub 上的新版本，有新版本时询问是否安装。</span>
+          </span>
+          <button id="check-update">检查更新…</button>
+        </div>
       </section>
 
       <section>
@@ -112,10 +171,3 @@
     <script type="module" src="./settings.ts"></script>
   </body>
 </html>
-        <div class="row">
-          <span class="grow">
-            更新
-            <span class="note">每小时检查一次 GitHub 上的新版本，有新版本时询问是否安装。</span>
-          </span>
-          <button id="check-update">检查更新…</button>
-        </div>

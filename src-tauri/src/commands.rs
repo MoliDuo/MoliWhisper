@@ -1,8 +1,12 @@
 //! What the settings page can call.
 
-use moli_core::config::BackendKind;
+use std::time::Duration;
+
+use moli_core::config::{BackendKind, OrganizerKind};
 use moli_core::doubao::web::params::Overrides;
 use moli_core::hotkey::{Hotkey, Mode};
+use moli_core::organize::{DEFAULT_PROMPT, OpenAiOrganizer};
+use moli_core::selfhost;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
@@ -41,12 +45,21 @@ pub struct StateView {
     restore_clipboard: bool,
     backend: BackendKind,
     organize: bool,
+    asr_server_url: String,
+    has_asr_token: bool,
+    organizer: OrganizerKind,
+    openai_base_url: String,
+    openai_model: String,
+    openai_prompt: String,
+    default_prompt: &'static str,
+    has_openai_key: bool,
     autostart: bool,
     overrides: String,
     auth: AuthView,
     accessibility: bool,
     microphone: MicStatus,
     config_path: String,
+    update: Phase,
 }
 
 #[tauri::command]
@@ -59,7 +72,6 @@ pub fn get_state(app: AppHandle, settings: State<Settings>, hook: State<HotkeySt
     };
     StateView {
         version: app.package_info().version.to_string(),
-    update: Phase,
         mac: cfg!(target_os = "macos"),
         hotkey: HotkeyView {
             label: hotkey::label(&config.hotkey),
@@ -72,6 +84,14 @@ pub fn get_state(app: AppHandle, settings: State<Settings>, hook: State<HotkeySt
         restore_clipboard: config.restore_clipboard,
         backend: config.backend,
         organize: config.organize,
+        asr_server_url: config.asr_server.url.clone(),
+        has_asr_token: !config.asr_server.token.is_empty(),
+        organizer: config.organizer.provider,
+        openai_base_url: config.organizer.openai.base_url.clone(),
+        openai_model: config.organizer.openai.model.clone(),
+        openai_prompt: config.organizer.openai.prompt.clone().unwrap_or_default(),
+        default_prompt: DEFAULT_PROMPT,
+        has_openai_key: !config.organizer.openai.api_key.is_empty(),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         overrides,
         auth: auth_view(app.state::<Auth>().status()),
@@ -82,6 +102,7 @@ pub fn get_state(app: AppHandle, settings: State<Settings>, hook: State<HotkeySt
             .app_data_dir()
             .map(|d| d.join(moli_core::config::FILE_NAME).display().to_string())
             .unwrap_or_default(),
+        update: app.state::<UpdateState>().phase(),
     }
 }
 
@@ -102,7 +123,6 @@ fn auth_view(status: AuthStatus) -> AuthView {
         logged_in,
         needs_login,
     }
-        update: app.state::<UpdateState>().phase(),
 }
 
 #[tauri::command]
@@ -153,6 +173,79 @@ pub fn set_organize(
     settings.update(|c| c.organize = enabled)?;
     state_changed(&app);
     Ok(())
+}
+
+/// Saves the self-hosted server. A `None` token keeps the saved one; an
+/// empty string clears it.
+#[tauri::command]
+pub fn set_asr_server(
+    app: AppHandle,
+    settings: State<Settings>,
+    url: String,
+    token: Option<String>,
+) -> Result<(), String> {
+    settings.update(|c| {
+        c.asr_server.url = url.trim().to_string();
+        if let Some(token) = token {
+            c.asr_server.token = token.trim().to_string();
+        }
+    })?;
+    state_changed(&app);
+    Ok(())
+}
+
+/// Asks the saved server for its model; the error is for the user to read.
+#[tauri::command]
+pub async fn test_asr_server(settings: State<'_, Settings>) -> Result<String, String> {
+    let config = settings.get();
+    if config.asr_server.url.trim().is_empty() {
+        return Err("还没有填写服务器地址".into());
+    }
+    selfhost::health(&config.asr_server.url, &config.asr_server.token)
+        .await
+        .map(|model| format!("连接成功：{model}"))
+        .map_err(|e| format!("连接失败：{e}"))
+}
+
+/// Saves the organizer. `None` for the key keeps the saved one; an empty
+/// prompt means the built-in one.
+#[tauri::command]
+pub fn set_organizer(
+    app: AppHandle,
+    settings: State<Settings>,
+    provider: OrganizerKind,
+    base_url: String,
+    model: String,
+    prompt: String,
+    api_key: Option<String>,
+) -> Result<(), String> {
+    settings.update(|c| {
+        c.organizer.provider = provider;
+        let openai = &mut c.organizer.openai;
+        openai.base_url = base_url.trim().to_string();
+        openai.model = model.trim().to_string();
+        openai.prompt = Some(prompt.trim().to_string()).filter(|p| !p.is_empty());
+        if let Some(key) = api_key {
+            openai.api_key = key.trim().to_string();
+        }
+    })?;
+    state_changed(&app);
+    Ok(())
+}
+
+/// Runs a sample sentence through the saved OpenAI-compatible model.
+#[tauri::command]
+pub async fn test_organizer(settings: State<'_, Settings>) -> Result<String, String> {
+    let config = settings.get();
+    let organizer =
+        OpenAiOrganizer::new(&config.organizer.openai).ok_or("还需要填写 Base URL 和模型名")?;
+    organizer
+        .organize(
+            "嗯那个我想说就是明天下午的会议呢可能要往后推一个小时吧",
+            Duration::from_secs(30),
+        )
+        .await
+        .ok_or_else(|| "没有得到结果：请检查地址、密钥和模型名（详见日志）".to_string())
 }
 
 #[tauri::command]

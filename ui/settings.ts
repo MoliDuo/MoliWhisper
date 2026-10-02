@@ -13,25 +13,35 @@ interface State {
   recording_hotkey: boolean;
   hook: HookStatus;
   restore_clipboard: boolean;
-  backend: "web" | "ime";
+  backend: "web" | "ime" | "self_hosted";
   organize: boolean;
+  asr_server_url: string;
+  has_asr_token: boolean;
+  organizer: "doubao_ime" | "openai";
+  openai_base_url: string;
+  openai_model: string;
+  openai_prompt: string;
+  default_prompt: string;
+  has_openai_key: boolean;
   autostart: boolean;
   overrides: string;
   auth: { label: string; logged_in: boolean; needs_login: boolean };
   accessibility: boolean;
   microphone: "granted" | "denied" | "not_determined" | "unknown";
   config_path: string;
+  update:
+    | { kind: "idle" | "checking" }
+    | { kind: "found" | "downloading"; version: string };
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let overridesDirty = false;
+let serverDirty = false;
+let openaiDirty = false;
 
 async function refresh() {
   let s: State;
-  update:
-    | { kind: "idle" | "checking" }
-    | { kind: "found" | "downloading"; version: string };
   try {
     s = await invoke<State>("get_state");
   } catch (e) {
@@ -43,7 +53,24 @@ async function refresh() {
     r.checked = r.value === s.backend;
   }
   $("account").hidden = s.backend !== "web";
+  $("server").hidden = s.backend !== "self_hosted";
+  if (!serverDirty) {
+    $<HTMLInputElement>("server-url").value = s.asr_server_url;
+    $<HTMLInputElement>("server-token").placeholder = s.has_asr_token
+      ? "已保存（留空保持不变）"
+      : "没有设置则留空";
+  }
   $<HTMLInputElement>("organize").checked = s.organize;
+  $<HTMLSelectElement>("organizer-provider").value = s.organizer;
+  $("openai").hidden = s.organizer !== "openai";
+  if (!openaiDirty) {
+    $<HTMLInputElement>("openai-base").value = s.openai_base_url;
+    $<HTMLInputElement>("openai-model").value = s.openai_model;
+    $<HTMLInputElement>("openai-key").placeholder = s.has_openai_key ? "已保存（留空保持不变）" : "";
+    const prompt = $<HTMLTextAreaElement>("openai-prompt");
+    prompt.value = s.openai_prompt;
+    prompt.placeholder = s.default_prompt;
+  }
   $("auth-label").textContent = s.auth.label;
   const login = $<HTMLButtonElement>("login");
   login.hidden = s.auth.logged_in && !s.auth.needs_login;
@@ -81,7 +108,23 @@ async function refresh() {
   $<HTMLInputElement>("restore").checked = s.restore_clipboard;
   if (!overridesDirty) $<HTMLTextAreaElement>("overrides").value = s.overrides;
   $("config-path").textContent = s.config_path;
+  const checkUpdate = $<HTMLButtonElement>("check-update");
+  checkUpdate.disabled = s.update.kind !== "idle";
+  checkUpdate.textContent = updateLabel(s.update);
   $("version").textContent = `MoliWhisper ${s.version}`;
+}
+
+function updateLabel(u: State["update"]): string {
+  switch (u.kind) {
+    case "checking":
+      return "正在检查…";
+    case "found":
+      return `发现 ${u.version}`;
+    case "downloading":
+      return `正在下载 ${u.version}…`;
+    default:
+      return "检查更新…";
+  }
 }
 
 function hookWarning(h: HookStatus): string {
@@ -108,25 +151,9 @@ async function call(cmd: string, args?: Record<string, unknown>) {
     showError("");
   } catch (e) {
     showError(String(e));
-  const checkUpdate = $<HTMLButtonElement>("check-update");
-  checkUpdate.disabled = s.update.kind !== "idle";
-  checkUpdate.textContent = updateLabel(s.update);
   }
   await refresh();
 }
-function updateLabel(u: State["update"]): string {
-  switch (u.kind) {
-    case "checking":
-      return "正在检查…";
-    case "found":
-      return `发现 ${u.version}`;
-    case "downloading":
-      return `正在下载 ${u.version}…`;
-    default:
-      return "检查更新…";
-  }
-}
-
 
 function showError(text: string) {
   $("error").hidden = !text;
@@ -138,6 +165,79 @@ for (const r of document.querySelectorAll<HTMLInputElement>('input[name="backend
 }
 $<HTMLInputElement>("organize").onchange = (e) =>
   call("set_organize", { enabled: (e.target as HTMLInputElement).checked });
+
+function message(id: string, text: string, ok: boolean | null) {
+  const el = $(id);
+  el.textContent = text;
+  el.classList.toggle("ok", ok === true);
+  el.classList.toggle("bad", ok === false);
+}
+
+// The token or key is sent only when something was typed; otherwise the saved one stays.
+function secret(id: string): string | null {
+  const v = $<HTMLInputElement>(id).value;
+  return v === "" ? null : v;
+}
+
+for (const id of ["server-url", "server-token"]) {
+  $(id).oninput = () => {
+    serverDirty = true;
+    message("server-msg", "未保存", null);
+  };
+}
+$("server-test").onclick = async () => {
+  message("server-msg", "正在连接…", null);
+  try {
+    await invoke("set_asr_server", {
+      url: $<HTMLInputElement>("server-url").value,
+      token: secret("server-token"),
+    });
+    serverDirty = false;
+    $<HTMLInputElement>("server-token").value = "";
+    message("server-msg", await invoke<string>("test_asr_server"), true);
+  } catch (e) {
+    message("server-msg", String(e), false);
+  }
+  await refresh();
+};
+
+function saveOrganizer() {
+  return invoke("set_organizer", {
+    provider: $<HTMLSelectElement>("organizer-provider").value,
+    baseUrl: $<HTMLInputElement>("openai-base").value,
+    model: $<HTMLInputElement>("openai-model").value,
+    prompt: $<HTMLTextAreaElement>("openai-prompt").value,
+    apiKey: secret("openai-key"),
+  });
+}
+$<HTMLSelectElement>("organizer-provider").onchange = async () => {
+  try {
+    await saveOrganizer();
+    openaiDirty = false;
+    showError("");
+  } catch (e) {
+    showError(String(e));
+  }
+  await refresh();
+};
+for (const id of ["openai-base", "openai-key", "openai-model", "openai-prompt"]) {
+  $(id).oninput = () => {
+    openaiDirty = true;
+    message("openai-msg", "未保存", null);
+  };
+}
+$("openai-test").onclick = async () => {
+  message("openai-msg", "正在测试…", null);
+  try {
+    await saveOrganizer();
+    openaiDirty = false;
+    $<HTMLInputElement>("openai-key").value = "";
+    message("openai-msg", "示例：" + (await invoke<string>("test_organizer")), true);
+  } catch (e) {
+    message("openai-msg", String(e), false);
+  }
+  await refresh();
+};
 $("login").onclick = () => call("login");
 // No confirm(): a second click within a few seconds confirms.
 let logoutArmed: number | undefined;
@@ -166,6 +266,7 @@ $("ax-open").onclick = () => call("open_accessibility_settings");
 $("mic-open").onclick = () => call("open_microphone_settings");
 $<HTMLInputElement>("autostart").onchange = (e) =>
   call("set_autostart", { enabled: (e.target as HTMLInputElement).checked });
+$("check-update").onclick = () => call("check_for_updates");
 $<HTMLInputElement>("restore").onchange = (e) =>
   call("set_restore_clipboard", { enabled: (e.target as HTMLInputElement).checked });
 
@@ -194,4 +295,3 @@ listen("hotkey-recorded", refresh);
 // Permissions change in System Settings; look again when the user comes back.
 window.addEventListener("focus", refresh);
 refresh();
-$("check-update").onclick = () => call("check_for_updates");

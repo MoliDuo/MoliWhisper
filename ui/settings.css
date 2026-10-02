@@ -186,3 +186,41 @@ footer {
   font-size: 11px;
   text-align: center;
 }
+
+.fields {
+  margin: 4px 0 8px;
+}
+.fields[hidden] {
+  display: none;
+}
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+.field.top {
+  align-items: flex-start;
+}
+.field .label {
+  width: 72px;
+}
+input:not([type]),
+input[type="password"],
+select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 0.5px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 8px;
+  min-width: 0;
+}
+#server-msg.bad,
+#openai-msg.bad {
+  color: var(--bad);
+}
+#server-msg.ok,
+#openai-msg.ok {
+  color: var(--ok);
+}

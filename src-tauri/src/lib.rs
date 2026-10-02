@@ -54,6 +54,10 @@ pub fn run() {
             commands::set_restore_clipboard,
             commands::set_backend,
             commands::set_organize,
+            commands::set_asr_server,
+            commands::test_asr_server,
+            commands::set_organizer,
+            commands::test_organizer,
             commands::set_autostart,
             commands::set_overrides,
             commands::record_hotkey,
@@ -63,11 +67,11 @@ pub fn run() {
             commands::open_microphone_settings,
             commands::login,
             commands::logout,
+            commands::check_for_updates,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-            commands::check_for_updates,
             let data_dir = app.path().app_data_dir()?;
             log::info!(
                 "MoliWhisper {} started, data dir {data_dir:?}",
@@ -75,11 +79,11 @@ pub fn run() {
             );
             app.manage(auth::Auth::load(&data_dir));
             app.manage(settings::Settings::load(&data_dir));
+            updater::init(app.handle());
             ime::init(app.handle())?;
             let backend = app.state::<settings::Settings>().get().backend;
             ime::keep_warm(app.handle(), backend == BackendKind::Ime);
             overlay::create(app.handle())?;
-            updater::init(app.handle());
             dictation::init(app.handle());
             hotkey::init(app.handle());
             tray::create(app.handle())?;
@@ -118,10 +122,10 @@ fn handle_args<R: Runtime>(app: &AppHandle<R>, argv: &[String]) -> bool {
                 tauri::async_runtime::spawn(login::logout(app.clone()));
             }
             "--dictate" => dictation::dictate_for(app, TEST_DICTATION_SECS),
+            "--check-update" => updater::check_now(app),
             _ => continue,
         }
         handled = true;
     }
-            "--check-update" => updater::check_now(app),
     handled
 }

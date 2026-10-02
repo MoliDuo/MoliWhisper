@@ -54,11 +54,10 @@ pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
 }
 
 fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
-    let ime = app.state::<Settings>().get().backend == BackendKind::Ime;
-    let (label, login_label, logged_in) = if ime {
-        ("识别：豆包输入法（免登录）".to_string(), None, false)
-    } else {
-        web_status(app.state::<Auth>().status())
+    let (label, login_label, logged_in) = match app.state::<Settings>().get().backend {
+        BackendKind::Ime => ("识别：豆包输入法（免登录）".to_string(), None, false),
+        BackendKind::SelfHosted => ("识别：自建服务器（Qwen3-ASR）".to_string(), None, false),
+        BackendKind::Web => web_status(app.state::<Auth>().status()),
     };
 
     let mut menu = MenuBuilder::new(app).item(&MenuItem::with_id(
@@ -85,8 +84,8 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         menu = menu.text("accessibility", "授予辅助功能权限…");
     }
     menu.separator()
-        .item(&update_item(app)?)
         .text("settings", "设置…")
+        .item(&update_item(app)?)
         .separator()
         .text("quit", "退出 MoliWhisper")
         .build()
@@ -110,6 +109,7 @@ fn web_status(status: AuthStatus) -> (String, Option<&'static str>, bool) {
         AuthStatus::Expired => ("登录已过期".to_string(), Some("重新登录…"), true),
     }
 }
+
 /// "检查更新…", greyed out with what it is doing while a check runs.
 fn update_item<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<MenuItem<R>> {
     let phase = app
@@ -123,7 +123,6 @@ fn update_item<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<MenuItem<R>> {
     };
     MenuItem::with_id(app, "update", text, enabled, None::<&str>)
 }
-
 
 fn hotkey_line<R: Runtime>(app: &AppHandle<R>) -> String {
     let config = app.state::<Settings>().get();

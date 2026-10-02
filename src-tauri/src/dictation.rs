@@ -6,14 +6,16 @@ use std::time::Duration;
 
 use moli_core::asr::Backend;
 use moli_core::audio::{self, AudioInput};
-use moli_core::config::BackendKind;
+use moli_core::config::{BackendKind, OrganizerKind};
 use moli_core::doubao::web::ConnectOptions;
+use moli_core::organize::{OpenAiOrganizer, Organizer};
+use moli_core::selfhost;
 use moli_core::session::{Controller, Env, Outcome, Phase, Timings, Update};
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::auth::{Auth, AuthStatus};
 use crate::hotkey::HotkeyState;
-use crate::ime::{Ime, ORGANIZE_TIMEOUT};
+use crate::ime::{Ime, OPENAI_ORGANIZE_TIMEOUT, ORGANIZE_TIMEOUT};
 use crate::settings::Settings;
 use crate::{login, overlay, platform, state_changed};
 
@@ -31,6 +33,7 @@ pub fn timings(backend: BackendKind) -> Timings {
     match backend {
         BackendKind::Web => Timings::default(),
         BackendKind::Ime => Timings::ime(),
+        BackendKind::SelfHosted => Timings::default(),
     }
 }
 
@@ -44,6 +47,27 @@ pub fn dictate_for<R: Runtime>(app: &AppHandle<R>, secs: u64) {
     });
 }
 
+/// The organizer the settings ask for and how long to wait for it; `None`
+/// (the text is pasted as it is) when the provider is not set up.
+fn organizer<R: Runtime>(
+    app: &AppHandle<R>,
+    config: &moli_core::config::OrganizerConfig,
+) -> Option<(Organizer, Duration)> {
+    match config.provider {
+        OrganizerKind::DoubaoIme => Some((
+            Organizer::DoubaoIme(app.state::<Ime>().0.clone()),
+            ORGANIZE_TIMEOUT,
+        )),
+        OrganizerKind::Openai => match OpenAiOrganizer::new(&config.openai) {
+            Some(o) => Some((Organizer::OpenAi(o), OPENAI_ORGANIZE_TIMEOUT)),
+            None => {
+                log::warn!("the OpenAI organizer needs a base URL and a model");
+                None
+            }
+        },
+    }
+}
+
 struct AppEnv<R: Runtime> {
     app: AppHandle<R>,
 }
@@ -51,8 +75,17 @@ struct AppEnv<R: Runtime> {
 impl<R: Runtime> Env for AppEnv<R> {
     fn backend(&self) -> Option<Backend> {
         let config = self.app.state::<Settings>().get();
-        if config.backend == BackendKind::Ime {
-            return Some(Backend::Ime(self.app.state::<Ime>().0.clone()));
+        match config.backend {
+            BackendKind::Ime => return Some(Backend::Ime(self.app.state::<Ime>().0.clone())),
+            BackendKind::SelfHosted => {
+                let opts =
+                    selfhost::ConnectOptions::new(&config.asr_server.url, &config.asr_server.token);
+                if opts.is_none() {
+                    log::warn!("the self-hosted ASR server URL is missing or invalid");
+                }
+                return opts.map(Backend::SelfHosted);
+            }
+            BackendKind::Web => {}
         }
         let auth = self.app.state::<Auth>();
         match auth.status() {
@@ -78,12 +111,15 @@ impl<R: Runtime> Env for AppEnv<R> {
         log::info!("recognized {} characters", text.chars().count());
         let app = self.app.clone();
         let config = app.state::<Settings>().get();
-        let organizer = config.organize.then(|| app.state::<Ime>().0.clone());
+        let organizer = config
+            .organize
+            .then(|| organizer(&app, &config.organizer))
+            .flatten();
         async move {
             let text = match organizer {
-                Some(ime) => {
+                Some((organizer, timeout)) => {
                     overlay::organizing(&app);
-                    ime.organize(&text, ORGANIZE_TIMEOUT).await.unwrap_or(text)
+                    organizer.organize(&text, timeout).await.unwrap_or(text)
                 }
                 None => text,
             };
@@ -109,6 +145,11 @@ impl<R: Runtime> Env for AppEnv<R> {
         if let Update::Outcome(outcome) = &update {
             match outcome {
                 Outcome::Done { .. } | Outcome::Empty | Outcome::Cancelled => {}
+                Outcome::NeedLogin | Outcome::SessionRejected
+                    if self.app.state::<Settings>().get().backend != BackendKind::Web =>
+                {
+                    log::warn!("dictation is not set up: {outcome:?}");
+                }
                 Outcome::NeedLogin | Outcome::SessionRejected => {
                     log::warn!("dictation needs a login: {outcome:?}");
                     let fresh = matches!(self.app.state::<Auth>().status(), AuthStatus::Rejected)

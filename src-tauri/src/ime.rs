@@ -10,6 +10,9 @@ use crate::settings::Settings;
 /// How long to wait for the organized text before pasting the original.
 pub const ORGANIZE_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// The same for an OpenAI-compatible model, which thinks longer.
+pub const OPENAI_ORGANIZE_TIMEOUT: Duration = Duration::from_secs(15);
+
 const VERSION_CHECK_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct Ime(pub ImeClient);
