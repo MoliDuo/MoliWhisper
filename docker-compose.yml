@@ -1,7 +1,7 @@
 # 自建语音识别服务。在有 NVIDIA 显卡的机器上：
 #
 #   cp .env.example .env     # 然后把 MOLI_ASR_TOKEN 改成一串随机字符
-#   docker compose up -d --build
+#   docker compose up -d      # 从 GHCR 拉镜像；改了 server/ 想本地构建就加 --build
 #
 # 没有显卡、只想调试客户端：docker compose --profile fake up -d --build asr-fake
 # 详见 server/README.md。
@@ -13,7 +13,7 @@ services:
     build:
       context: ./server
       target: gpu
-    image: moliwhisper/asr-server:gpu
+    image: ghcr.io/moliduo/moliwhisper-asr:latest # server/ 有改动时由 CI 构建发布
     restart: unless-stopped
     ports:
       # MOLI_BIND 默认监听所有网卡；只想让 Tailscale 能访问时填本机的 100.x.y.z

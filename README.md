@@ -26,7 +26,7 @@
 ```bash
 git clone https://github.com/MoliDuo/MoliWhisper && cd MoliWhisper
 cp .env.example .env      # 把 MOLI_ASR_TOKEN 改成一串随机字符
-docker compose up -d --build
+docker compose up -d
 ```
 
 然后在 MoliWhisper 设置里选「自建服务器」，地址填 `ws://<服务器>:8765/v1/stream`，Token 填同一个值。细节、参数和协议见 [`server/README.md`](server/README.md)。

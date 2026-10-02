@@ -12,7 +12,7 @@ Mac 上的 MoliWhisper 通过 WebSocket 把音频流过来，边说边出字。
 
 ```bash
 cp .env.example .env          # 把 MOLI_ASR_TOKEN 改成一串随机字符：openssl rand -hex 24
-docker compose up -d --build
+docker compose up -d          # 从 GHCR 拉预构建的镜像（公开，不用登录）
 docker compose logs -f asr    # 首次要下载约 4 GB 模型并加载进显存，看到 Uvicorn running 就好了
 curl -H "Authorization: Bearer 你的token" http://localhost:8765/healthz
 ```
@@ -22,7 +22,7 @@ curl -H "Authorization: Bearer 你的token" http://localhost:8765/healthz
 - 所有可调项都在 [`.env.example`](../.env.example) 里，有注释。
 - 想只让 Tailscale 访问：`.env` 里设 `MOLI_BIND=本机的 100.x.y.z`。
 - 没有显卡、只想调试客户端：`docker compose --profile fake up -d --build asr-fake`（不下载模型，几十 MB）。
-- 更新：`git pull && docker compose up -d --build`。
+- 更新：`git pull && docker compose pull && docker compose up -d`。镜像由 CI 在 `server/` 有改动时构建发布到 `ghcr.io/moliduo/moliwhisper-asr`（`latest` 和提交 SHA 两个标签）；想自己构建就用 `docker compose up -d --build`。
 
 镜像基于 `nvidia/cuda:12.8` 的 devel 版，里面是 Python 3.12 + vLLM + `qwen-asr`；宿主机驱动要支持 CUDA 12.8（驱动 ≥ 570）。
 
