@@ -80,7 +80,8 @@ jobs:
           [ "$head" = "$SHA" ] || skip "master has moved on to $head; skipping $SHA"
           version=$(bash -c 'source scripts/lib.sh && build_version')
           # Re-running an old build must not publish over a newer release.
-          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)
+          # On a 404 (no full release yet) gh prints the error body to stdout, so clear it.
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null) || latest=""
           latest="${latest#v}"
           if [ -n "$latest" ]; then
             newest=$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -1)
