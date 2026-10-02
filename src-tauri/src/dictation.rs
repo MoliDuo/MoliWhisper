@@ -9,7 +9,7 @@ use moli_core::audio::{self, AudioInput};
 use moli_core::config::{BackendKind, OrganizerKind};
 use moli_core::doubao::web::ConnectOptions;
 use moli_core::organize::{OpenAiOrganizer, Organizer};
-use moli_core::selfhost;
+use moli_core::qwen;
 use moli_core::session::{Controller, Env, Outcome, Phase, Timings, Update};
 use tauri::{AppHandle, Manager, Runtime};
 
@@ -33,7 +33,7 @@ pub fn timings(backend: BackendKind) -> Timings {
     match backend {
         BackendKind::Web => Timings::default(),
         BackendKind::Ime => Timings::ime(),
-        BackendKind::SelfHosted => Timings::default(),
+        BackendKind::Qwen => Timings::default(),
     }
 }
 
@@ -77,13 +77,13 @@ impl<R: Runtime> Env for AppEnv<R> {
         let config = self.app.state::<Settings>().get();
         match config.backend {
             BackendKind::Ime => return Some(Backend::Ime(self.app.state::<Ime>().0.clone())),
-            BackendKind::SelfHosted => {
-                let opts =
-                    selfhost::ConnectOptions::new(&config.asr_server.url, &config.asr_server.token);
+            BackendKind::Qwen => {
+                let q = &config.qwen;
+                let opts = qwen::ConnectOptions::new(&q.url, &q.api_key, &q.model);
                 if opts.is_none() {
-                    log::warn!("the self-hosted ASR server URL is missing or invalid");
+                    log::warn!("the Qwen API key is missing or the URL is invalid");
                 }
-                return opts.map(Backend::SelfHosted);
+                return opts.map(Backend::Qwen);
             }
             BackendKind::Web => {}
         }

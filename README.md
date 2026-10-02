@@ -7,29 +7,11 @@
 
 ## 组成
 
-| 部分 | 在哪 | 做什么 |
-|------|------|--------|
-| **MoliWhisper**（macOS 菜单栏应用） | `src-tauri/`、`ui/`、`crates/moli-core/` | 全局快捷键、录音、悬浮窗、粘贴 |
-| **自建语音识别服务**（可选） | `server/`、`docker-compose.yml` | 在 NVIDIA 显卡机器上跑 Qwen3-ASR，流式识别 |
+语音识别有三种来源（设置里切换）：豆包网页版（需登录）、豆包输入法（免登录）、千问（阿里云百炼，需要 API Key）。文字整理有两种：豆包输入法、任意 OpenAI 兼容接口。
 
-语音识别有三种来源（设置里切换）：豆包网页版（需登录）、豆包输入法（免登录）、自建服务器。文字整理有两种：豆包输入法、任意 OpenAI 兼容接口。
+### 千问语音识别
 
-```
- Mac ── MoliWhisper ──(Tailscale / 局域网，WebSocket)──▶ 服务器: docker compose up
-                                                          └─ Qwen3-ASR-1.7B + vLLM
-```
-
-### 自建语音识别服务
-
-在有 NVIDIA 显卡、装了 Docker 和 NVIDIA Container Toolkit 的机器上：
-
-```bash
-git clone https://github.com/MoliDuo/MoliWhisper && cd MoliWhisper
-cp .env.example .env      # 把 MOLI_ASR_TOKEN 改成一串随机字符
-docker compose up -d
-```
-
-然后在 MoliWhisper 设置里选「自建服务器」，地址填 `ws://<服务器>:8765/v1/stream`，Token 填同一个值。细节、参数和协议见 [`server/README.md`](server/README.md)。
+在[阿里云百炼](https://bailian.console.aliyun.com/)创建 API Key，然后在 MoliWhisper 设置里选「千问（阿里云）」，填入 Key，点「保存并测试」。模型默认 `qwen-audio-3.0-asr-flash-streaming`，地址默认 `wss://maas.qwencloudapi.com/api-ws/v1/inference`，一般不用改。Key 只保存在本机的 0600 配置文件里。
 
 <p align="center">
   <img src="docs/screenshots/overlay_pannel.png" width="500" alt="语音识别悬浮窗">
@@ -120,12 +102,10 @@ docker compose up -d
 
 | 路径 | 内容 |
 |------|------|
-| [`crates/moli-core/`](crates/moli-core) | 纯 Rust 核心：豆包网页版与输入法两套 ASR 客户端、自建服务器客户端、文字整理（豆包 / OpenAI 兼容）、会话逻辑、音频处理。不依赖 Tauri，任何平台都能 `cargo test` |
+| [`crates/moli-core/`](crates/moli-core) | 纯 Rust 核心：豆包网页版与输入法两套 ASR 客户端、千问（DashScope）客户端、文字整理（豆包 / OpenAI 兼容）、会话逻辑、音频处理。不依赖 Tauri，任何平台都能 `cargo test` |
 | [`src-tauri/`](src-tauri) | Tauri 应用：托盘、窗口、平台相关代码（热键、粘贴、悬浮窗、权限） |
-| [`server/`](server) | 自建语音识别服务（Python，Qwen3-ASR + vLLM，WebSocket 流式），见 [`server/README.md`](server/README.md) |
 | [`ui/`](ui) | 悬浮窗和设置页，Vite + 纯 TypeScript |
 | [`scripts/`](scripts) | 构建、安装、调试脚本 |
-| [`docker-compose.yml`](docker-compose.yml)、[`.env.example`](.env.example) | 一条命令起自建语音识别服务 |
 | [`docs/`](docs) | 豆包接口的逆向笔记和截图 |
 | [`legacy/`](legacy) | 旧的 Swift 版和当时的设计文档，新版能日常使用后删除 |
 
@@ -159,9 +139,6 @@ docker compose up -d
 
 # 核心库测试
 cargo test -p moli-core
-
-# 服务端测试（不需要显卡）
-(cd server && uv run pytest)
 
 # 真实接口探针（凭证默认读旧版 app 保存的文件，或用 MOLI_CREDS 指定）
 ./scripts/asr-probe.sh --wav crates/moli-core/fixtures/zh_short.wav --repeat 20

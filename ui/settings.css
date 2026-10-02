@@ -216,11 +216,11 @@ select {
   padding: 4px 8px;
   min-width: 0;
 }
-#server-msg.bad,
+#qwen-msg.bad,
 #openai-msg.bad {
   color: var(--bad);
 }
-#server-msg.ok,
+#qwen-msg.ok,
 #openai-msg.ok {
   color: var(--ok);
 }

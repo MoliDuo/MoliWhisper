@@ -56,7 +56,7 @@ pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
 fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let (label, login_label, logged_in) = match app.state::<Settings>().get().backend {
         BackendKind::Ime => ("识别：豆包输入法（免登录）".to_string(), None, false),
-        BackendKind::SelfHosted => ("识别：自建服务器（Qwen3-ASR）".to_string(), None, false),
+        BackendKind::Qwen => ("识别：千问（阿里云）".to_string(), None, false),
         BackendKind::Web => web_status(app.state::<Auth>().status()),
     };
 

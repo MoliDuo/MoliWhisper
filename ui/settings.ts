@@ -13,10 +13,11 @@ interface State {
   recording_hotkey: boolean;
   hook: HookStatus;
   restore_clipboard: boolean;
-  backend: "web" | "ime" | "self_hosted";
+  backend: "web" | "ime" | "qwen";
   organize: boolean;
-  asr_server_url: string;
-  has_asr_token: boolean;
+  qwen_model: string;
+  qwen_url: string;
+  has_qwen_key: boolean;
   organizer: "doubao_ime" | "openai";
   openai_base_url: string;
   openai_model: string;
@@ -37,7 +38,7 @@ interface State {
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let overridesDirty = false;
-let serverDirty = false;
+let qwenDirty = false;
 let openaiDirty = false;
 
 async function refresh() {
@@ -53,12 +54,11 @@ async function refresh() {
     r.checked = r.value === s.backend;
   }
   $("account").hidden = s.backend !== "web";
-  $("server").hidden = s.backend !== "self_hosted";
-  if (!serverDirty) {
-    $<HTMLInputElement>("server-url").value = s.asr_server_url;
-    $<HTMLInputElement>("server-token").placeholder = s.has_asr_token
-      ? "已保存（留空保持不变）"
-      : "没有设置则留空";
+  $("qwen").hidden = s.backend !== "qwen";
+  if (!qwenDirty) {
+    $<HTMLInputElement>("qwen-model").value = s.qwen_model;
+    $<HTMLInputElement>("qwen-url").value = s.qwen_url;
+    $<HTMLInputElement>("qwen-key").placeholder = s.has_qwen_key ? "已保存（留空保持不变）" : "sk-…";
   }
   $<HTMLInputElement>("organize").checked = s.organize;
   $<HTMLSelectElement>("organizer-provider").value = s.organizer;
@@ -179,24 +179,25 @@ function secret(id: string): string | null {
   return v === "" ? null : v;
 }
 
-for (const id of ["server-url", "server-token"]) {
+for (const id of ["qwen-key", "qwen-model", "qwen-url"]) {
   $(id).oninput = () => {
-    serverDirty = true;
-    message("server-msg", "未保存", null);
+    qwenDirty = true;
+    message("qwen-msg", "未保存", null);
   };
 }
-$("server-test").onclick = async () => {
-  message("server-msg", "正在连接…", null);
+$("qwen-test").onclick = async () => {
+  message("qwen-msg", "正在连接…", null);
   try {
-    await invoke("set_asr_server", {
-      url: $<HTMLInputElement>("server-url").value,
-      token: secret("server-token"),
+    await invoke("set_qwen", {
+      apiKey: secret("qwen-key"),
+      model: $<HTMLInputElement>("qwen-model").value,
+      url: $<HTMLInputElement>("qwen-url").value,
     });
-    serverDirty = false;
-    $<HTMLInputElement>("server-token").value = "";
-    message("server-msg", await invoke<string>("test_asr_server"), true);
+    qwenDirty = false;
+    $<HTMLInputElement>("qwen-key").value = "";
+    message("qwen-msg", await invoke<string>("test_qwen"), true);
   } catch (e) {
-    message("server-msg", String(e), false);
+    message("qwen-msg", String(e), false);
   }
   await refresh();
 };

@@ -30,8 +30,7 @@ pub struct Config {
     pub organize: bool,
     pub asr: AsrConfig,
     pub ime: ImeConfig,
-    /// The self-hosted recognition server.
-    pub asr_server: AsrServerConfig,
+    pub qwen: QwenConfig,
     /// Which service rewrites the transcript, when `organize` is on.
     pub organizer: OrganizerConfig,
 }
@@ -47,7 +46,7 @@ impl Default for Config {
             organize: false,
             asr: AsrConfig::default(),
             ime: ImeConfig::default(),
-            asr_server: AsrServerConfig::default(),
+            qwen: QwenConfig::default(),
             organizer: OrganizerConfig::default(),
         }
     }
@@ -60,7 +59,7 @@ pub struct AsrConfig {
     pub param_overrides: Overrides,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BackendKind {
     /// The Doubao web ASR, with the login from the Doubao website.
@@ -68,8 +67,19 @@ pub enum BackendKind {
     Web,
     /// The Doubao input method's ASR; anonymous, no login.
     Ime,
-    /// Our own server running Qwen3-ASR; see `server/`.
-    SelfHosted,
+    /// Qwen speech recognition on Alibaba Cloud, with an API key.
+    Qwen,
+}
+
+impl<'de> Deserialize<'de> for BackendKind {
+    /// An unknown name (a backend from another version) falls back to the default.
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(match String::deserialize(d)?.as_str() {
+            "ime" => Self::Ime,
+            "qwen" => Self::Qwen,
+            _ => Self::Web,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -81,11 +91,12 @@ pub struct ImeConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct AsrServerConfig {
-    /// `ws://host:port/v1/stream` or `wss://…`.
+pub struct QwenConfig {
+    pub api_key: String,
+    /// Blank means [`crate::qwen::DEFAULT_MODEL`].
+    pub model: String,
+    /// Blank means [`crate::qwen::DEFAULT_URL`].
     pub url: String,
-    /// Bearer token; empty when the server wants none.
-    pub token: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -197,9 +208,10 @@ mod tests {
             ime: ImeConfig {
                 device_id: Some("1234567890123456".into()),
             },
-            asr_server: AsrServerConfig {
-                url: "ws://box:8765/v1/stream".into(),
-                token: "t".into(),
+            qwen: QwenConfig {
+                api_key: "sk-x".into(),
+                model: "m".into(),
+                url: "wss://example.com/ws".into(),
             },
             organizer: OrganizerConfig {
                 provider: OrganizerKind::Openai,
@@ -249,7 +261,11 @@ mod tests {
         assert!(c.organize);
         assert_eq!(c.backend, BackendKind::Ime);
         assert_eq!(c.organizer.provider, OrganizerKind::DoubaoIme);
-        assert_eq!(c.asr_server, AsrServerConfig::default());
+        assert_eq!(c.qwen, QwenConfig::default());
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(FILE_NAME), r#"{"backend":"self_hosted"}"#).unwrap();
+        assert_eq!(ConfigStore::open(&dir).load().backend, BackendKind::Web);
         let _ = std::fs::remove_dir_all(dir);
     }
 

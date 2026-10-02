@@ -1,4 +1,4 @@
-//! The self-hosted ASR client and the OpenAI-compatible organizer against
+//! The Qwen ASR client and the OpenAI-compatible organizer against
 //! local mock servers.
 
 #![allow(clippy::result_large_err)]
@@ -9,7 +9,7 @@ use futures_util::{SinkExt, StreamExt};
 use moli_core::asr::{AsrEvent, Backend, ConnectError, ServerMsg};
 use moli_core::config::OpenAiConfig;
 use moli_core::organize::{OpenAiOrganizer, Organizer};
-use moli_core::selfhost::{self, ConnectOptions};
+use moli_core::qwen::{self, ConnectOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::Message;
@@ -18,9 +18,11 @@ use tokio_tungstenite::tungstenite::http;
 
 const T: Duration = Duration::from_secs(2);
 
-/// A WebSocket server wanting `token` (when not empty): answers the first
-/// audio with a partial and our finish with a final.
-async fn ws_server(token: &'static str) -> std::net::SocketAddr {
+/// A DashScope-like WebSocket server wanting `Bearer key`: `run-task` is
+/// answered with `task-started`, the first audio with an open sentence, the
+/// second with a finished one, and `finish-task` with a last sentence and
+/// `task-finished`. A `fail` model gets `task-failed` instead of `task-started`.
+async fn ws_server(key: &'static str) -> std::net::SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -28,36 +30,59 @@ async fn ws_server(token: &'static str) -> std::net::SocketAddr {
             let (tcp, _) = listener.accept().await.unwrap();
             tokio::spawn(async move {
                 let check = |req: &Request, resp: Response| -> Result<Response, ErrorResponse> {
-                    let got = req
+                    let auth = req
                         .headers()
                         .get("authorization")
                         .and_then(|v| v.to_str().ok());
-                    if !token.is_empty() && got != Some(&format!("Bearer {token}")) {
+                    if auth == Some(&format!("Bearer {key}")) {
+                        Ok(resp)
+                    } else {
                         let mut r = ErrorResponse::new(None);
                         *r.status_mut() = http::StatusCode::UNAUTHORIZED;
-                        return Err(r);
+                        Err(r)
                     }
-                    Ok(resp)
                 };
                 let Ok(mut ws) = tokio_tungstenite::accept_hdr_async(tcp, check).await else {
                     return;
                 };
-                let mut first = true;
+                let event = |name: &str, payload: &str| {
+                    Message::Text(
+                        format!(r#"{{"header":{{"event":"{name}"}},"payload":{payload}}}"#).into(),
+                    )
+                };
+                let sentence = |text: &str, end: &str| {
+                    event(
+                        "result-generated",
+                        &format!(
+                            r#"{{"output":{{"sentence":{{"begin_time":0,"end_time":{end},"text":"{text}"}}}}}}"#
+                        ),
+                    )
+                };
+                let mut audio = 0;
                 while let Some(Ok(msg)) = ws.next().await {
                     match msg {
-                        Message::Binary(_) if first => {
-                            first = false;
-                            ws.send(Message::Text(r#"{"type":"partial","text":"你好"}"#.into()))
-                                .await
-                                .unwrap();
+                        Message::Text(t) if t.contains("run-task") => {
+                            let reply = if t.contains(r#""model":"fail""#) {
+                                Message::Text(
+                                    r#"{"header":{"event":"task-failed","error_code":"Oops","error_message":"no"}}"#.into(),
+                                )
+                            } else {
+                                event("task-started", "{}")
+                            };
+                            ws.send(reply).await.unwrap();
                         }
-                        Message::Text(t) if t.contains("finish") => {
-                            ws.send(Message::Text(
-                                r#"{"type":"final","text":"你好世界。"}"#.into(),
-                            ))
-                            .await
-                            .unwrap();
-                            let _ = ws.close(None).await;
+                        Message::Binary(_) => {
+                            audio += 1;
+                            let m = if audio == 1 {
+                                sentence("你好", "null")
+                            } else {
+                                sentence("你好。", "1800")
+                            };
+                            ws.send(m).await.unwrap();
+                        }
+                        Message::Text(t) if t.contains("finish-task") => {
+                            ws.send(sentence("世界。", "3000")).await.unwrap();
+                            ws.send(event("task-finished", "{}")).await.unwrap();
                         }
                         _ => {}
                     }
@@ -68,65 +93,72 @@ async fn ws_server(token: &'static str) -> std::net::SocketAddr {
     addr
 }
 
-fn opts(addr: std::net::SocketAddr, token: &str) -> ConnectOptions {
-    ConnectOptions::new(&format!("ws://{addr}/v1/stream"), token).unwrap()
+fn opts(addr: std::net::SocketAddr, key: &str, model: &str) -> ConnectOptions {
+    ConnectOptions::new(&format!("ws://{addr}/ws"), key, model).unwrap()
+}
+
+async fn next(stream: &mut moli_core::asr::Stream) -> AsrEvent {
+    tokio::time::timeout(T, stream.next())
+        .await
+        .unwrap()
+        .unwrap()
+}
+
+fn result(text: &str) -> AsrEvent {
+    AsrEvent::Server(ServerMsg::Result { text: text.into() })
 }
 
 #[tokio::test]
-async fn partial_then_final_then_finish() {
+async fn sentences_accumulate_into_the_full_transcript() {
     let addr = ws_server("secret").await;
-    let backend = Backend::SelfHosted(opts(addr, "secret"));
+    let backend = Backend::Qwen(opts(addr, "secret", ""));
     let (mut sink, mut stream, _) = backend.connect(T).await.unwrap();
     sink.audio(vec![0; 1600]).await.unwrap();
-    let mut got = Vec::new();
-    got.push(
-        tokio::time::timeout(T, stream.next())
-            .await
-            .unwrap()
-            .unwrap(),
-    );
+    assert_eq!(next(&mut stream).await, result("你好"));
+    sink.audio(vec![0; 1600]).await.unwrap();
+    assert_eq!(next(&mut stream).await, result("你好。"));
     sink.finish().await.unwrap();
-    got.push(
-        tokio::time::timeout(T, stream.next())
-            .await
-            .unwrap()
-            .unwrap(),
-    );
-    got.push(
-        tokio::time::timeout(T, stream.next())
-            .await
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(
-        got,
-        vec![
-            AsrEvent::Server(ServerMsg::Result {
-                text: "你好".into()
-            }),
-            AsrEvent::Server(ServerMsg::Result {
-                text: "你好世界。".into()
-            }),
-            AsrEvent::Server(ServerMsg::Finish),
-        ]
-    );
+    assert_eq!(next(&mut stream).await, result("你好。世界。"));
+    assert_eq!(next(&mut stream).await, AsrEvent::Server(ServerMsg::Finish));
 }
 
 #[tokio::test]
-async fn wrong_token_is_rejected_with_401() {
+async fn wrong_key_is_rejected_with_401() {
     let addr = ws_server("secret").await;
-    let backend = Backend::SelfHosted(opts(addr, "nope"));
+    let backend = Backend::Qwen(opts(addr, "nope", ""));
     match backend.connect(T).await {
         Err(ConnectError::Rejected(401)) => {}
         other => panic!("unexpected: {:?}", other.map(|_| ())),
     }
 }
 
+#[tokio::test]
+async fn task_failed_at_the_start_is_a_connect_error() {
+    let addr = ws_server("secret").await;
+    let backend = Backend::Qwen(opts(addr, "secret", "fail"));
+    match backend.connect(T).await {
+        Err(ConnectError::Transient(m)) => assert!(m.contains("Oops"), "{m}"),
+        other => panic!("unexpected: {:?}", other.map(|_| ())),
+    }
+}
+
+#[tokio::test]
+async fn check_reports_the_outcome() {
+    let addr = ws_server("secret").await;
+    assert!(qwen::check(&opts(addr, "secret", "")).await.is_ok());
+    let err = qwen::check(&opts(addr, "nope", "")).await.unwrap_err();
+    assert!(err.contains("API key"), "{err}");
+}
+
 #[test]
-fn url_must_be_a_websocket_url() {
-    assert!(ConnectOptions::new("http://x/v1/stream", "").is_none());
-    assert!(ConnectOptions::new("not a url", "").is_none());
-    assert!(ConnectOptions::new("wss://x/v1/stream", "").is_some());
+fn options_need_a_key_and_a_websocket_url() {
+    assert!(ConnectOptions::new("", "", "").is_none());
+    assert!(ConnectOptions::new("http://x", "k", "").is_none());
+    assert!(ConnectOptions::new("not a url", "k", "").is_none());
+    let o = ConnectOptions::new("", " k ", "").unwrap();
+    assert_eq!(o.url.as_str(), qwen::DEFAULT_URL);
+    assert_eq!(o.model, qwen::DEFAULT_MODEL);
+    assert_eq!(o.api_key, "k");
 }
 
 /// One-shot HTTP server answering every request with `status` and `body`
@@ -237,17 +269,4 @@ async fn organizer_failures_give_none() {
             .await,
         None
     );
-}
-
-#[tokio::test]
-async fn health_reports_the_model() {
-    let (url, _r) = http_server(
-        200,
-        r#"{"ok":true,"model":"Qwen3-ASR-1.7B"}"#,
-        Duration::ZERO,
-    )
-    .await;
-    let ws = url.replace("http://", "ws://").replace("/v1", "/v1/stream");
-    assert_eq!(selfhost::health(&ws, "").await.unwrap(), "Qwen3-ASR-1.7B");
-    assert!(selfhost::health("http://x", "").await.is_err());
 }

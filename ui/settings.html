@@ -26,25 +26,29 @@
             </span>
           </label>
           <label class="choice">
-            <input type="radio" name="backend" value="self_hosted" />
+            <input type="radio" name="backend" value="qwen" />
             <span>
-              自建服务器（Qwen3-ASR）
-              <span class="note">连接自己部署的识别服务，支持边说边出字，见仓库 server/。</span>
+              千问（阿里云）
+              <span class="note">阿里云百炼的千问实时语音识别，边说边出字，需要 API Key（按量计费）。</span>
             </span>
           </label>
         </div>
-        <div id="server" class="fields" hidden>
+        <div id="qwen" class="fields" hidden>
+          <label class="field">
+            <span class="label">API Key</span>
+            <input id="qwen-key" class="grow" type="password" spellcheck="false" placeholder="sk-…" />
+          </label>
+          <label class="field">
+            <span class="label">模型</span>
+            <input id="qwen-model" class="grow" spellcheck="false" placeholder="qwen-audio-3.0-asr-flash-streaming" />
+          </label>
           <label class="field">
             <span class="label">地址</span>
-            <input id="server-url" class="grow" spellcheck="false" placeholder="ws://主机名:8765/v1/stream" />
-          </label>
-          <label class="field">
-            <span class="label">Token</span>
-            <input id="server-token" class="grow" type="password" spellcheck="false" placeholder="没有设置则留空" />
+            <input id="qwen-url" class="grow" spellcheck="false" placeholder="wss://maas.qwencloudapi.com/api-ws/v1/inference" />
           </label>
           <div class="row">
-            <span id="server-msg" class="grow note"></span>
-            <button id="server-test">保存并测试</button>
+            <span id="qwen-msg" class="grow note"></span>
+            <button id="qwen-test">保存并测试</button>
           </div>
         </div>
         <div id="account" class="row">
