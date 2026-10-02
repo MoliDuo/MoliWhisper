@@ -1,7 +1,7 @@
 # 自建语音识别服务。在有 NVIDIA 显卡的机器上：
 #
 #   cp .env.example .env     # 然后把 MOLI_ASR_TOKEN 改成一串随机字符
-#   docker compose up -d      # 从 GHCR 拉镜像；改了 server/ 想本地构建就加 --build
+#   docker compose up -d      # 从 GHCR 拉镜像（私有，先 docker login ghcr.io）；改了 server/ 想本地构建就加 --build
 #
 # 没有显卡、只想调试客户端：docker compose --profile fake up -d --build asr-fake
 # 详见 server/README.md。

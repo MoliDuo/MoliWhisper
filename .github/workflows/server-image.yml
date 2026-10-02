@@ -6,6 +6,7 @@ on:
     branches: [master]
     paths:
       - server/**
+      - '!server/**/*.md'
       - .github/workflows/server-image.yml
 
 concurrency:

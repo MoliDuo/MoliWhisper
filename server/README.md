@@ -12,11 +12,13 @@ Mac 上的 MoliWhisper 通过 WebSocket 把音频流过来，边说边出字。
 
 ```bash
 cp .env.example .env          # 把 MOLI_ASR_TOKEN 改成一串随机字符：openssl rand -hex 24
-docker compose up -d          # 从 GHCR 拉预构建的镜像（公开，不用登录）
+docker login ghcr.io -u <GitHub 用户名>   # 只需一次，见下面的说明
+docker compose up -d          # 从 GHCR 拉预构建的镜像
 docker compose logs -f asr    # 首次要下载约 4 GB 模型并加载进显存，看到 Uvicorn running 就好了
 curl -H "Authorization: Bearer 你的token" http://localhost:8765/healthz
 ```
 
+- 镜像是私有的，所以第一次要登录 GHCR：在 GitHub → Settings → Developer settings → Personal access tokens (classic) 新建一个只勾 `read:packages` 的令牌，当作 `docker login` 的密码。令牌别写进仓库。想免登录，可以在包的设置里把可见性改成 Public。
 - 模型存在名为 `models` 的 Docker 卷里，重建容器不会重新下载。服务器访问不了 Hugging Face 时，在 `.env` 里设 `HF_ENDPOINT=https://hf-mirror.com`。
 - `restart: unless-stopped`，机器重启后会自动起来。
 - 所有可调项都在 [`.env.example`](../.env.example) 里，有注释。
