@@ -110,7 +110,7 @@ Key 只保存在本机的配置文件里（`~/Library/Application Support/com.mo
 cargo test -p moli-core
 ```
 
-本地构建会自动找钥匙串里的 Apple Development 证书签名，这样重新构建后辅助功能和麦克风授权不会丢。CI 用同一张证书（仓库 Secrets 里的 `APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD`）签发布包，所以本地构建和下载的版本共用同一份授权。
+本地构建会自动找钥匙串里的「Moli Self-Signed Code Signing」自签名证书签名（与 MoliSwitch 等 Moli 系列应用共用），这样重新构建后辅助功能和麦克风授权不会丢。CI 用同一张证书（仓库 Secrets 里的 `CODESIGN_P12_BASE64` / `CODESIGN_P12_PASSWORD`）签发布包，所以本地构建和下载的版本共用同一份授权。
 
 更新包另用一把更新密钥签名：`./scripts/setup-updater-keys.sh` 在本机生成一次，公钥写进 `tauri.conf.json`，私钥和密码存进 Secrets 的 `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。没有它 CI 不会发布。私钥丢了，已安装的版本就再也收不到自动更新，务必备份。
 

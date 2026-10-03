@@ -8,16 +8,17 @@ APP_NAME="MoliWhisper"
 BUNDLE_ID="com.moliduo.moliwhisper"
 BINARY_NAME="moliwhisper"
 
-# Sign with the local Apple Development certificate so macOS keeps the
-# Accessibility and microphone grants across rebuilds. Falls back to the
+# Sign with the shared Moli self-signed certificate (installed in the login
+# keychain) so macOS keeps the Accessibility and microphone grants across
+# rebuilds. Self-signed, so find-identity runs without -v. Falls back to the
 # ad-hoc signature from tauri.conf.json when no certificate is installed.
 signing_config() {
   local sha
-  sha="$(security find-identity -v -p codesigning 2>/dev/null | awk '/"Apple Development/ {print $2; exit}')"
+  sha="$(security find-identity -p codesigning 2>/dev/null | awk '/"Moli Self-Signed Code Signing"/ {print $2; exit}')"
   if [[ -n "$sha" ]]; then
     printf '{"bundle":{"macOS":{"signingIdentity":"%s"}}}' "$sha"
   else
-    echo "⚠️  No Apple Development certificate; using an ad-hoc signature (permissions reset on every build)." >&2
+    echo "⚠️  No Moli Self-Signed Code Signing certificate; using an ad-hoc signature (permissions reset on every build)." >&2
     printf '{}'
   fi
 }

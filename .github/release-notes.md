@@ -6,7 +6,7 @@
 
 ## macOS 首次打开
 
-安装包用 Apple Development 证书签名，但没有公证。从浏览器下载的，拖进「应用程序」后第一次打开会被 Gatekeeper 拦住，可以：
+安装包用自签名证书签名，没有公证。从浏览器下载的，拖进「应用程序」后第一次打开会被 Gatekeeper 拦住，可以：
 
 - 在「系统设置 → 隐私与安全性」里点「仍要打开」；或者
 - 在终端执行 `xattr -dr com.apple.quarantine /Applications/MoliWhisper.app`

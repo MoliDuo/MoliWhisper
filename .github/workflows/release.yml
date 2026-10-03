@@ -8,8 +8,8 @@ name: Release
 # and points at that release's own .app.tar.gz asset, never at "latest".
 #
 # Two signatures:
-# - the .app, with the Apple Development certificate in APPLE_CERTIFICATE /
-#   APPLE_CERTIFICATE_PASSWORD, the one local builds use, so macOS keeps the
+# - the .app, with the shared self-signed certificate in CODESIGN_P12_BASE64 /
+#   CODESIGN_P12_PASSWORD, the one local builds use, so macOS keeps the
 #   Accessibility and microphone grants across updates;
 # - the update archive, with the updater key in TAURI_SIGNING_PRIVATE_KEY /
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD (scripts/setup-updater-keys.sh), whose
@@ -152,11 +152,11 @@ jobs:
       # afterwards. Sets APPLE_SIGNING_IDENTITY for the build.
       - name: Import the signing certificate
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          CODESIGN_P12_BASE64: ${{ secrets.CODESIGN_P12_BASE64 }}
+          CODESIGN_P12_PASSWORD: ${{ secrets.CODESIGN_P12_PASSWORD }}
         run: |
-          if [ -z "$APPLE_CERTIFICATE" ]; then
-            echo "::warning::APPLE_CERTIFICATE is not set; using an ad-hoc signature"
+          if [ -z "$CODESIGN_P12_BASE64" ]; then
+            echo "::warning::CODESIGN_P12_BASE64 is not set; using an ad-hoc signature"
             exit 0
           fi
           keychain="$RUNNER_TEMP/signing.keychain-db"
@@ -164,17 +164,15 @@ jobs:
           security create-keychain -p "$password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$password" "$keychain"
-          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          echo "$CODESIGN_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$CODESIGN_P12_PASSWORD" -T /usr/bin/codesign
           rm "$RUNNER_TEMP/cert.p12"
-          # The intermediate that issues Apple Development certificates.
-          curl -fsSL https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer -o "$RUNNER_TEMP/wwdr.cer"
-          security import "$RUNNER_TEMP/wwdr.cer" -k "$keychain"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
-          identity=$(security find-identity -v -p codesigning "$keychain" | awk '/"Apple Development/ {print $2; exit}')
+          # Self-signed, so not "valid" to find-identity: do not pass -v.
+          identity=$(security find-identity -p codesigning "$keychain" | awk '/"Moli Self-Signed Code Signing"/ {print $2; exit}')
           if [ -z "$identity" ]; then
-            echo "::error::no Apple Development identity in APPLE_CERTIFICATE"
+            echo "::error::no Moli Self-Signed Code Signing identity in CODESIGN_P12_BASE64"
             exit 1
           fi
           echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
