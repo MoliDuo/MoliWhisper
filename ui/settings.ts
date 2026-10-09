@@ -22,9 +22,7 @@ interface State {
   accessibility: boolean;
   microphone: "granted" | "denied" | "not_determined" | "unknown";
   config_path: string;
-  update:
-    | { kind: "idle" | "checking" }
-    | { kind: "found" | "downloading"; version: string };
+  update: { kind: "idle" | "checking" } | { kind: "found" | "downloading"; version: string };
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -42,7 +40,9 @@ async function refresh() {
   }
 
   if (!qwenDirty) {
-    $<HTMLInputElement>("qwen-key").placeholder = s.has_qwen_key ? "已保存（留空保持不变）" : "sk-…";
+    $<HTMLInputElement>("qwen-key").placeholder = s.has_qwen_key
+      ? "已保存（留空保持不变）"
+      : "sk-…";
   }
   $<HTMLInputElement>("organize").checked = s.organize;
   $("deepseek").hidden = !s.organize;
@@ -88,7 +88,7 @@ async function refresh() {
   const checkUpdate = $<HTMLButtonElement>("check-update");
   checkUpdate.disabled = s.update.kind !== "idle";
   checkUpdate.textContent = updateLabel(s.update);
-  $("version").textContent = `MoliWhisper ${s.version}`;
+  $("version").textContent = `Moli Whisper ${s.version}`;
 }
 
 function updateLabel(u: State["update"]): string {
@@ -107,7 +107,7 @@ function updateLabel(u: State["update"]): string {
 function hookWarning(h: HookStatus): string {
   switch (h.kind) {
     case "needs_permission":
-      return "热键需要辅助功能权限。请在系统设置 → 隐私与安全性 → 辅助功能中打开 MoliWhisper，授权后立即生效。";
+      return "热键需要辅助功能权限。请在系统设置 → 隐私与安全性 → 辅助功能中打开 Moli Whisper，授权后立即生效。";
     case "unsupported":
     case "failed":
       return h.detail;

@@ -1,0 +1,37 @@
+name: MoliWhisper
+id: whisper
+kind: desktop
+level: L1
+
+fork:
+  upstream: lilong7676/doubao-murmur
+  license: MIT
+
+login:
+  mode: exempt # a local dictation tool: no server, no account; the user brings their own Qwen / DeepSeek API keys
+
+deploy:
+  platform: none
+
+data:
+  db: none
+
+release:
+  kind: client
+  mode: manual
+
+exceptions:
+  - rule: "1.3"
+    reason: >-
+      Bundle ID 沿用已发布的 com.moliduo.moliwhisper，不改成 com.moliduo.whisper：改了等于换一个应用，
+      所有用户要重新授予辅助功能和麦克风权限，配置目录也会变（规范 001 的 1.7.2）。
+    until: 2027-09-30
+  - rule: "8.9"
+    reason: >-
+      本地语音输入工具，没有服务端和账号，不接统一登录；语音识别和整理用用户自己填的 API Key，只存在本机配置文件里。
+    until: 2027-09-30
+  - rule: "10.5"
+    reason: >-
+      TypeScript 只用 Prettier 和 tsc（strict、noUnused*），暂不加 ESLint：项目用 TypeScript 7，
+      typescript-eslint 目前只支持到 6.0。typescript-eslint 支持 7 之后补上。
+    until: 2027-03-31

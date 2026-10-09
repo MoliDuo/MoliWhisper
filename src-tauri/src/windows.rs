@@ -10,7 +10,7 @@ pub fn show_settings<R: Runtime>(app: &AppHandle<R>) {
         return;
     }
     let built = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
-        .title("MoliWhisper 设置")
+        .title("Moli Whisper 设置")
         .inner_size(560.0, 620.0)
         .min_inner_size(480.0, 420.0)
         .resizable(true)

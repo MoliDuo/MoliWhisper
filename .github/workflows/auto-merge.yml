@@ -1,0 +1,24 @@
+name: auto-merge
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize, edited]
+
+permissions: {}
+
+jobs:
+  enqueue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Skip drafts, PRs from forks, and PRs that do not target the default branch.
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
+      (github.event.action != 'edited' || github.event.changes.base != null)
+    steps:
+      - uses: MoliDuo/MoliKit/actions/auto-merge@9b799ce70581440f1598ece62c068dd0b881b955 # v1.2.1
+        with:
+          app-id: ${{ secrets.AUTOMERGE_APP_ID }}
+          private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+          pull-request: ${{ github.event.pull_request.number }}

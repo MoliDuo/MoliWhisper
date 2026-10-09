@@ -6,3 +6,12 @@ dist/
 src-tauri/gen/
 .DS_Store
 
+
+# Secrets never go in the repo (MoliSpec 012)
+.env*
+!.env.example
+.dev.vars
+*.p12
+*.pem
+*.key
+*.keystore

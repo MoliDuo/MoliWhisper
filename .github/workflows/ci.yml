@@ -1,37 +1,103 @@
-name: CI
+name: ci
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  check:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  # A commit the merge queue landed on main is the very commit the queue already tested (same SHA),
+  # so the push run skips the checks instead of repeating them. Direct pushes run everything.
+  verified:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      skip: ${{ steps.queue.outputs.skip }}
     steps:
-      - uses: actions/checkout@v5
+      - id: queue
+        uses: MoliDuo/MoliKit/actions/verified@9b799ce70581440f1598ece62c068dd0b881b955 # v1.2.1
 
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+  # pnpm run check: Prettier, tsc, release-script tests, Vite build, rustfmt, clippy, cargo test.
+  # macOS because the app links AppKit and CoreAudio. No cache anywhere (MoliSpec 004 §4.6.7).
+  check:
+    needs: verified
+    if: needs.verified.outputs.skip != 'true'
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          node-version: 22
-          cache: pnpm
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install the Rust toolchain
+        run: rustup toolchain install # the version in rust-toolchain.toml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      - run: pnpm run check
 
-      - uses: dtolnay/rust-toolchain@stable
+  gitleaks:
+    needs: verified
+    if: needs.verified.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The official image, not gitleaks-action (paid for organizations).
+      - uses: MoliDuo/MoliKit/actions/gitleaks@9b799ce70581440f1598ece62c068dd0b881b955 # v1.2.1
+
+  # The app as users get it, without any secret: a release bundle (ad-hoc signed), checked the way the
+  # release checks it, minus the certificate.
+  build:
+    needs: verified
+    if: needs.verified.outputs.skip != 'true'
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install the Rust toolchain
+        run: rustup toolchain install # the version in rust-toolchain.toml
+      - run: pnpm install --frozen-lockfile
+      - name: Build the app
+        run: pnpm tauri build --ci --target aarch64-apple-darwin --bundles app,dmg
+      - name: Check the bundle
+        run: |
+          set -euo pipefail
+          version=$(node -p 'require("./package.json").version')
+          app=target/aarch64-apple-darwin/release/bundle/macos/MoliWhisper.app
+          plist="$app/Contents/Info.plist"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" = "$version"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = com.moliduo.moliwhisper
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist")" = "Moli Whisper"
+          lipo -archs "$app/Contents/MacOS/moliwhisper" | grep -qx arm64
+          ls target/aarch64-apple-darwin/release/bundle/dmg/MoliWhisper_"$version"_aarch64.dmg
 
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test -p moli-core
+  ci-gate:
+    if: always()
+    needs: [verified, check, gitleaks, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: MoliDuo/MoliKit/actions/ci-gate@9b799ce70581440f1598ece62c068dd0b881b955 # v1.2.1
+        with:
+          needs: ${{ toJSON(needs) }}
