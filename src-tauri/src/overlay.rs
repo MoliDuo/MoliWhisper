@@ -51,7 +51,7 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 pub fn create<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("overlay.html".into()))
-        .title("MoliWhisper")
+        .title("Moli Whisper")
         .inner_size(WIDTH, HEIGHT)
         .resizable(false)
         .decorations(false)

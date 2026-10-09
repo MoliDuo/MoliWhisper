@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <title>MoliWhisper 设置</title>
+    <title>Moli Whisper 设置</title>
     <link rel="stylesheet" href="./settings.css" />
   </head>
   <body>
@@ -13,7 +13,13 @@
         <div class="fields">
           <label class="field">
             <span class="label">千问 API Key</span>
-            <input id="qwen-key" class="grow" type="password" spellcheck="false" placeholder="sk-…" />
+            <input
+              id="qwen-key"
+              class="grow"
+              type="password"
+              spellcheck="false"
+              placeholder="sk-…"
+            />
           </label>
           <div class="row">
             <span id="qwen-msg" class="grow note"></span>
@@ -27,14 +33,22 @@
         <label class="row check">
           <span class="grow">
             口语 → 书面语
-            <span class="note">识别完先去掉口头语、理顺语句再粘贴；整理失败或超过 15 秒时粘贴原文。</span>
+            <span class="note"
+              >识别完先去掉口头语、理顺语句再粘贴；整理失败或超过 15 秒时粘贴原文。</span
+            >
           </span>
           <input id="organize" type="checkbox" />
         </label>
         <div id="deepseek" class="fields">
           <label class="field">
             <span class="label">DeepSeek API Key</span>
-            <input id="deepseek-key" class="grow" type="password" spellcheck="false" placeholder="sk-…" />
+            <input
+              id="deepseek-key"
+              class="grow"
+              type="password"
+              spellcheck="false"
+              placeholder="sk-…"
+            />
           </label>
           <label class="field top">
             <span class="label">提示词</span>

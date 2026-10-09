@@ -1,0 +1,7 @@
+# Pinned so CI, release builds and local builds use the same compiler (MoliSpec 010 §10.4.1).
+# Dependabot does not bump it; raise it by hand.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]
+targets = ["aarch64-apple-darwin"]
+profile = "minimal"

@@ -1,247 +1,348 @@
-name: Release
+name: release
 
-# Every push to master that passes CI becomes a release, the way MoliSwitch
-# does it: version X.Y.N (X.Y from Cargo.toml, N the commit count; see
-# build_version in scripts/lib.sh), published as the latest release. Its
-# latest.json is the feed the app's updater reads,
-#   https://github.com/MoliDuo/MoliWhisper/releases/latest/download/latest.json
-# and points at that release's own .app.tar.gz asset, never at "latest".
+# Publishes the app (MoliSpec 006 §6.5, release.mode: manual): push a tag vX.Y.Z on the commit that is the
+# head of main and that `ci` has passed, after `chore(release): vX.Y.Z` set `version` in package.json.
 #
-# Two signatures:
-# - the .app, with the shared self-signed certificate in CODESIGN_P12_BASE64 /
-#   CODESIGN_P12_PASSWORD, the one local builds use, so macOS keeps the
-#   Accessibility and microphone grants across updates;
-# - the update archive, with the updater key in TAURI_SIGNING_PRIVATE_KEY /
-#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD (scripts/setup-updater-keys.sh), whose
-#   public half is in tauri.conf.json.
+#   prepare  checks the tag, the signing secrets and the update key, drafts the release with its notes
+#   build    macOS arm64 (.app update archive and .dmg), signed with the shared certificate and the update key
+#   release  checks what the build made, adds latest.json (the update feed) and SHA256SUMS to the draft,
+#            makes sure main has not moved, publishes, then reads the published feed the way an installed
+#            app will and puts the release back to draft if that does not check out
+#
+# "Run workflow" by hand is a dry run: the same build, update-signed with a throwaway key and checked the
+# same way, but nothing is published; the files are kept as the run's artifacts for a week.
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [master]
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
 
-# One release at a time, never cancelled halfway (that leaves a draft behind).
-# A newer push waiting here replaces an older one that is still waiting.
+permissions:
+  contents: read
+
+# One release at a time, and never cancelled halfway (that leaves a draft behind).
 concurrency:
   group: release
   cancel-in-progress: false
 
-permissions:
-  contents: write
-
 env:
-  KEEP_RELEASES: 10
-  SHA: ${{ github.event.workflow_run.head_sha }}
+  # SHA-1 of the shared "Moli Self-Signed Code Signing" certificate (MoliSpec 007 §7.5.1). Not a secret.
+  # Another certificate would make every user grant Accessibility and the microphone again.
+  CODESIGN_FINGERPRINT: 319b1ba057375e21ae752764d4fcd38b6c13d9f6
 
 jobs:
   prepare:
-    # Only pushes to this repo's master that passed CI.
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # the draft release
+      checks: read # whether ci passed on this commit
     outputs:
-      skip: ${{ steps.version.outputs.skip }}
       version: ${{ steps.version.outputs.version }}
-      release_id: ${{ steps.create.outputs.release_id }}
+      dry: ${{ steps.version.outputs.dry }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ env.SHA }}
           fetch-depth: 0
-
-      - name: Check the updater key
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: |
-          # A release the installed apps can't verify must not go out.
-          if [ -z "$(jq -r '.plugins.updater.pubkey // empty' src-tauri/tauri.conf.json)" ]; then
-            echo "::error::no updater public key in tauri.conf.json; run scripts/setup-updater-keys.sh"
-            exit 1
-          fi
-          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set; run scripts/setup-updater-keys.sh"
-            exit 1
-          fi
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Work out the version
         id: version
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = push ]; then dry=false; else dry=true; fi
+          echo "dry=$dry" >> "$GITHUB_OUTPUT"
+
+      - name: Check the tag
+        if: steps.version.outputs.dry == 'false'
+        run: node scripts/release/cli.ts check-tag "$GITHUB_REF_NAME"
+
+      - name: Check this is the head of main and that ci passed on it
+        if: steps.version.outputs.dry == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          skip() {
-            echo "::notice::$1"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          }
-          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/master" --jq .sha)
-          [ "$head" = "$SHA" ] || skip "master has moved on to $head; skipping $SHA"
-          version=$(bash -c 'source scripts/lib.sh && build_version')
-          # Re-running an old build must not publish over a newer release.
-          # On a 404 (no full release yet) gh prints the error body to stdout, so clear it.
-          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null) || latest=""
-          latest="${latest#v}"
-          if [ -n "$latest" ]; then
-            newest=$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -1)
-            if [ "$version" = "$latest" ] || [ "$newest" != "$version" ]; then
-              skip "$version is not newer than the latest release $latest"
-            fi
+          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "::error::$GITHUB_REF_NAME is not the head of main ($head); tag the latest commit of main instead"
+            exit 1
           fi
-          echo "version=$version"
-          {
-            echo "skip=false"
-            echo "version=$version"
-          } >> "$GITHUB_OUTPUT"
+          result=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" \
+            --jq '[.check_runs[] | select(.name == "ci-gate")] | map(.conclusion) | first // "none"')
+          if [ "$result" != success ]; then
+            echo "::error::ci-gate is '$result' on this commit; wait for ci to pass, then tag again"
+            exit 1
+          fi
 
-      - name: Create a draft release
-        id: create
-        if: steps.version.outputs.skip == 'false'
+      # Without the keys nothing can be signed, and a release the installed apps cannot verify must not go
+      # out (MoliSpec 007 §7.6.2).
+      - name: Check the signing keys
+        env:
+          DRY: ${{ steps.version.outputs.dry }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CODESIGN_P12_BASE64: ${{ secrets.CODESIGN_P12_BASE64 }}
+          CODESIGN_P12_PASSWORD: ${{ secrets.CODESIGN_P12_PASSWORD }}
+        run: |
+          ok=true
+          names="CODESIGN_P12_BASE64 CODESIGN_P12_PASSWORD"
+          [ "$DRY" = true ] || names="$names TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+          for name in $names; do
+            if [ -z "${!name}" ]; then
+              echo "::error::the secret $name is not set (scripts/setup-updater-keys.sh makes the update key)"
+              ok=false
+            fi
+          done
+          if [ -z "$(node -p 'require("./src-tauri/tauri.conf.json").plugins?.updater?.pubkey ?? ""')" ]; then
+            echo "::error::src-tauri/tauri.conf.json has no plugins.updater.pubkey"
+            ok=false
+          fi
+          $ok
+
+      - name: Make a throwaway update key for the dry run
+        if: steps.version.outputs.dry == 'true'
+        run: |
+          pnpm install --frozen-lockfile
+          mkdir dry-key
+          pnpm -s tauri signer generate --ci -w dry-key/updater.key -p dry > /dev/null
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: steps.version.outputs.dry == 'true'
+        with:
+          name: dry-key
+          path: dry-key/
+          retention-days: 1
+
+      - name: Write the release notes
+        run: |
+          tag="v${{ steps.version.outputs.version }}"
+          node scripts/release/cli.ts notes "$tag" "$GITHUB_SHA" > notes.md
+          cat notes.md
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-notes
+          path: notes.md
+          retention-days: 7
+
+      # Drafted first, filled in by `release`, public only when it is complete (MoliSpec 006 §6.5.3).
+      - name: Draft the release
+        if: steps.version.outputs.dry == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          {
-            echo "对应提交 $SHA。"
-            echo
-            git log -1 --format='> %s'
-            echo
-            cat .github/release-notes.md
-          } > "$RUNNER_TEMP/notes.md"
-          id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
-            -f tag_name="v$VERSION" \
-            -f target_commitish="$SHA" \
-            -f name="MoliWhisper $VERSION" \
-            -F body=@"$RUNNER_TEMP/notes.md" \
-            -F draft=true -F prerelease=false \
-            --jq .id)
-          test -n "$id"
-          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+          if gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            if [ "$(gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" != true ]; then
+              echo "::error::$GITHUB_REF_NAME is already published; it is not overwritten"
+              exit 1
+            fi
+            gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --title "Moli Whisper $VERSION" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "Moli Whisper $VERSION" --notes-file notes.md
+          fi
 
   build:
     needs: prepare
-    if: needs.prepare.outputs.skip == 'false'
-    runs-on: macos-latest
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      DRY: ${{ needs.prepare.outputs.dry }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ env.SHA }}
-
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
-          cache: pnpm
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install the Rust toolchain
+        run: rustup toolchain install # the version in rust-toolchain.toml
       - run: pnpm install --frozen-lockfile
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        if: env.DRY == 'true'
         with:
-          targets: aarch64-apple-darwin
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: release-aarch64-apple-darwin
+          name: dry-key
+          path: dry-key
 
-      - name: Set the version and turn on the update archive
+      # The update archive is made when this is set; the dry run points it at the throwaway key's public half.
+      - name: Choose the update key
         run: |
-          scripts/set-version.sh "${{ needs.prepare.outputs.version }}"
-          jq '.bundle.createUpdaterArtifacts = true' src-tauri/tauri.conf.json > "$RUNNER_TEMP/tauri.conf.json"
-          mv "$RUNNER_TEMP/tauri.conf.json" src-tauri/tauri.conf.json
+          if [ "$DRY" = true ]; then
+            pub=$(tr -d '\n' < dry-key/updater.key.pub)
+            config=$(PUB="$pub" node -p 'JSON.stringify({bundle:{createUpdaterArtifacts:true},plugins:{updater:{pubkey:process.env.PUB,endpoints:["https://example.invalid/latest.json"]}}})')
+          else
+            config='{"bundle":{"createUpdaterArtifacts":true}}'
+          fi
+          echo "RELEASE_TAURI_CONFIG=$config" >> "$GITHUB_ENV"
 
-      # A throwaway keychain with the certificate; the runner is discarded
-      # afterwards. Sets APPLE_SIGNING_IDENTITY for the build.
+      # A throwaway keychain with the shared self-signed certificate (MoliSpec 007 §7.5.1); deleted below.
       - name: Import the signing certificate
         env:
           CODESIGN_P12_BASE64: ${{ secrets.CODESIGN_P12_BASE64 }}
           CODESIGN_P12_PASSWORD: ${{ secrets.CODESIGN_P12_PASSWORD }}
         run: |
-          if [ -z "$CODESIGN_P12_BASE64" ]; then
-            echo "::warning::CODESIGN_P12_BASE64 is not set; using an ad-hoc signature"
-            exit 0
-          fi
-          keychain="$RUNNER_TEMP/signing.keychain-db"
-          password=$(uuidgen)
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          echo "$CODESIGN_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$CODESIGN_P12_PASSWORD" -T /usr/bin/codesign
-          rm "$RUNNER_TEMP/cert.p12"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
-          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
-          # Self-signed, so not "valid" to find-identity: do not pass -v.
-          identity=$(security find-identity -p codesigning "$keychain" | awk '/"Moli Self-Signed Code Signing"/ {print $2; exit}')
-          if [ -z "$identity" ]; then
-            echo "::error::no Moli Self-Signed Code Signing identity in CODESIGN_P12_BASE64"
+          set -euo pipefail
+          if [ -z "$CODESIGN_P12_BASE64" ] || [ -z "$CODESIGN_P12_PASSWORD" ]; then
+            echo "::error::CODESIGN_P12_BASE64 / CODESIGN_P12_PASSWORD are not available; no signed build"
             exit 1
           fi
-          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          keychain="$RUNNER_TEMP/codesign.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          certificate="$RUNNER_TEMP/codesign.p12"
+          printf '%s' "$CODESIGN_P12_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$CODESIGN_P12_PASSWORD" -T /usr/bin/codesign > /dev/null
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          rm -f "$certificate"
+          # codesign only finds the identity when the keychain is on the search list.
+          existing="$(security list-keychains -d user | tr -d '"')"
+          # shellcheck disable=SC2086
+          security list-keychains -d user -s "$keychain" $existing
+          # Self-signed, so not "valid" to find-identity: no -v.
+          if ! security find-identity -p codesigning "$keychain" | grep -qi "$CODESIGN_FINGERPRINT"; then
+            echo "::error::the certificate in CODESIGN_P12_BASE64 is not $CODESIGN_FINGERPRINT"
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$CODESIGN_FINGERPRINT" >> "$GITHUB_ENV"
 
-      - uses: tauri-apps/tauri-action@v1
+      - name: Build and sign
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          releaseId: ${{ needs.prepare.outputs.release_id }}
-          tauriScript: pnpm tauri
-          args: --target aarch64-apple-darwin --bundles app,dmg
-          uploadUpdaterJson: true
-          retryAttempts: 1
+          TAURI_SIGNING_PRIVATE_KEY: ${{ needs.prepare.outputs.dry == 'true' && format('{0}/dry-key/updater.key', github.workspace) || secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ needs.prepare.outputs.dry == 'true' && 'dry' || secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --ci --target aarch64-apple-darwin --bundles app,dmg --config "$RELEASE_TAURI_CONFIG"
 
-  publish:
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/codesign.keychain-db" 2> /dev/null || true
+
+      # Name the files by MoliSpec 006 §6.6.1, and refuse a package whose version is not the tag's (§6.5.2)
+      # or that is not signed with the shared certificate.
+      - name: Collect the files
+        run: |
+          set -euo pipefail
+          bundle=target/aarch64-apple-darwin/release/bundle
+          app="$bundle/macos/MoliWhisper.app"
+          plist="$app/Contents/Info.plist"
+          built=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")
+          if [ "$built" != "$VERSION" ]; then
+            echo "::error::the app says $built, the release is $VERSION"
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$app"
+          if ! codesign -d -r- "$app" 2>&1 | grep -qi "certificate leaf = H\"$CODESIGN_FINGERPRINT\""; then
+            codesign -dvv "$app" 2>&1 | grep -E 'Authority|Signature' || true
+            echo "::error::the app is not signed with the shared certificate $CODESIGN_FINGERPRINT"
+            exit 1
+          fi
+          mkdir out
+          cp "$bundle/dmg/MoliWhisper_${VERSION}_aarch64.dmg" "out/MoliWhisper_${VERSION}_macos_arm64.dmg"
+          cp "$bundle/macos/MoliWhisper.app.tar.gz" "out/MoliWhisper_${VERSION}_macos_arm64.app.tar.gz"
+          cp "$bundle/macos/MoliWhisper.app.tar.gz.sig" "out/MoliWhisper_${VERSION}_macos_arm64.app.tar.gz.sig"
+          ls -l out
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: build-macos
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+
+  release:
     needs: [prepare, build]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # upload to the draft, publish it
     env:
-      GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.prepare.outputs.version }}
-      RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+      DRY: ${{ needs.prepare.outputs.dry }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Publish the release
-        id: publish
-        run: |
-          # master may have moved on during the build; the newer push publishes instead.
-          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/master" --jq .sha)
-          if [ "$head" != "$SHA" ]; then
-            echo "::notice::master has moved on to $head; dropping the draft for $VERSION"
-            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
-            echo "published=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
-            -F draft=false -f make_latest=true --jq .html_url
-          echo "published=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: build-macos
+          path: out
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-notes
+          path: .
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        if: env.DRY == 'true'
+        with:
+          name: dry-key
+          path: dry-key
 
-      - name: Check the public feed
-        if: steps.publish.outputs.published == 'true'
+      - name: The public key the app carries
+        id: key
         run: |
-          feed="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/latest.json"
-          for attempt in 1 2 3 4 5 6; do
-            if curl -fsSL "$feed" -o latest.json && [ "$(jq -r .version latest.json)" = "$VERSION" ]; then
-              break
-            fi
-            [ "$attempt" = 6 ] && { echo "::error::$feed does not announce $VERSION"; exit 1; }
-            sleep 10
-          done
-          cat latest.json
-          # tauri-action links the asset by its id, which is as fixed as a tag URL.
-          url=$(jq -r '.platforms["darwin-aarch64"].url' latest.json)
-          if ! gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq '.[].url' | grep -qxF "$url"; then
-            echo "::error::the feed points at $url, not at an asset of v$VERSION"
+          if [ "$DRY" = true ]; then
+            echo "pubkey=$(tr -d '\n' < dry-key/updater.key.pub)" >> "$GITHUB_OUTPUT"
+          else
+            echo "pubkey=$(node -p 'require("./src-tauri/tauri.conf.json").plugins.updater.pubkey')" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The update archive's signature checked with that public key, then latest.json and SHA256SUMS
+      # written (MoliSpec 006 §6.5.2 and §6.5.6).
+      - name: Check the build and write the feed
+        run: node scripts/release/cli.ts assemble out "$VERSION" "$GITHUB_REPOSITORY" notes.md "${{ steps.key.outputs.pubkey }}"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: env.DRY == 'true'
+        with:
+          name: release-preview
+          path: |
+            out/MoliWhisper_*
+            out/latest.json
+            out/SHA256SUMS
+          retention-days: 7
+
+      - name: Add the files to the draft
+        if: env.DRY == 'false'
+        run: |
+          gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber \
+            out/MoliWhisper_"$VERSION"_macos_arm64.dmg \
+            out/MoliWhisper_"$VERSION"_macos_arm64.app.tar.gz \
+            out/latest.json out/SHA256SUMS
+
+      # What is public must be what was built from this tag (MoliSpec 006 §6.5.4).
+      - name: Check main has not moved
+        if: env.DRY == 'false'
+        run: |
+          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "::error::main moved on to $head while this was building; the draft $GITHUB_REF_NAME is left unpublished, release again from the new head"
             exit 1
           fi
-          test -n "$(jq -r '.platforms["darwin-aarch64"].signature // empty' latest.json)"
-          # What the updater does: no token, Accept: application/octet-stream.
-          curl -fsSL -H "Accept: application/octet-stream" "$url" -o update.tar.gz
-          tar -tzf update.tar.gz | head -3
 
-      - name: Delete old releases
-        if: steps.publish.outputs.published == 'true'
-        run: |
-          # Per-push releases (vX.Y.N, and the earlier vX.Y.Z-dev.N); older tagged prereleases stay.
-          gh release list -R "$GITHUB_REPOSITORY" --exclude-drafts --limit 200 --json tagName,createdAt \
-            --jq "[.[] | select(.tagName | test(\"^v[0-9]+\\\\.[0-9]+\\\\.[0-9]+$|-dev\\\\.\"))] | sort_by(.createdAt) | reverse | .[$KEEP_RELEASES:] | .[].tagName" |
-            while read -r tag; do
-              echo "deleting $tag"
-              gh release delete "$tag" -R "$GITHUB_REPOSITORY" --cleanup-tag --yes
-            done
+      - name: Publish
+        id: publish
+        if: env.DRY == 'false'
+        run: gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft=false --latest
+
+      # What the installed apps will read (MoliSpec 006 §6.5.5; 007 §7.3.3).
+      - name: Check the published feed
+        if: env.DRY == 'false'
+        run: node scripts/release/cli.ts verify-published "$GITHUB_REPOSITORY" "$VERSION" "${{ steps.key.outputs.pubkey }}"
+
+      # Stop the loss first (MoliSpec 006 §6.8.1): back to a draft, so the feed and the download page no
+      # longer offer it. Fix, then release a new patch version.
+      - name: Take it back if the feed is wrong
+        if: failure() && steps.publish.outcome == 'success'
+        run: gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft=true

@@ -14,7 +14,7 @@ pub fn create<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(Image::from_bytes(include_bytes!("../icons/tray.png"))?)
         .icon_as_template(true)
-        .tooltip("MoliWhisper")
+        .tooltip("Moli Whisper")
         .menu(&build_menu(app)?)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -72,7 +72,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .text("settings", "设置…")
         .item(&update_item(app)?)
         .separator()
-        .text("quit", "退出 MoliWhisper")
+        .text("quit", "退出 Moli Whisper")
         .build()
 }
 

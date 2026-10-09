@@ -1,6 +1,6 @@
-//! Updates from GitHub Releases, the way MoliSwitch uses Sparkle.
+//! Updates from GitHub Releases (MoliSpec 007).
 //!
-//! Every push to master publishes a release with a signed `latest.json`
+//! Every `vX.Y.Z` tag publishes a release with a signed `latest.json`
 //! (release.yml). The app checks it in the background every hour and only
 //! speaks up when there is a newer version; "检查更新…" in the tray or on the
 //! settings page also reports "up to date" and errors. Nothing is downloaded
@@ -106,7 +106,7 @@ async fn check<R: Runtime>(app: &AppHandle<R>, trigger: Trigger) {
         Ok(None) => {
             set_phase(app, Phase::Idle);
             if manual {
-                let text = format!("MoliWhisper {current} 已是最新版本。");
+                let text = format!("Moli Whisper {current} 已是最新版本。");
                 alert(app, MessageDialogKind::Info, "已是最新版本", &text).await;
             }
         }
@@ -114,7 +114,7 @@ async fn check<R: Runtime>(app: &AppHandle<R>, trigger: Trigger) {
             set_phase(app, Phase::Idle);
             log::warn!("update check failed: {e}");
             if manual {
-                let text = format!("没能从 GitHub 取得新版本信息：{e}");
+                let text = format!("现在连不上更新源，稍后再试。\n\n{e}");
                 alert(app, MessageDialogKind::Error, "检查更新失败", &text).await;
             }
         }
@@ -127,9 +127,9 @@ async fn offer<R: Runtime>(app: &AppHandle<R>, update: Update, current: &str) {
     log::info!("update available: {current} -> {version}");
     set_phase(app, Phase::Found(version.clone()));
     let text = format!(
-        "MoliWhisper {version} 已发布，当前是 {current}。\n\n安装后会自动重启，辅助功能和麦克风授权保持不变。"
+        "Moli Whisper {version} 已发布，当前是 {current}。\n\n安装后会自动重启，辅助功能和麦克风授权保持不变。"
     );
-    let install = ask(app, "发现新版本", &text, "安装并重启", "稍后").await;
+    let install = ask(app, "发现新版本", &text, "立即更新", "稍后").await;
     if !install {
         *app.state::<UpdateState>().later.lock().unwrap() = Some(version);
         set_phase(app, Phase::Idle);
@@ -161,12 +161,12 @@ fn blocking_reason() -> Option<&'static str> {
 fn blocking_reason_for(exe: &Path) -> Option<&'static str> {
     if exe.starts_with("/Volumes") {
         return Some(
-            "MoliWhisper 正在从磁盘映像运行。请先把它拖到「应用程序」文件夹，再从那里打开。",
+            "Moli Whisper 正在从磁盘映像运行，无法更新。请先把应用移到「应用程序」文件夹，再从那里打开。",
         );
     }
     if exe.to_string_lossy().contains("/AppTranslocation/") {
         return Some(
-            "macOS 把 MoliWhisper 放在只读的临时位置运行，无法替换自己。请把它移到「应用程序」文件夹后重新打开。",
+            "macOS 把 Moli Whisper 放在只读的临时位置运行，无法更新。请先把应用移到「应用程序」文件夹，再从那里打开。",
         );
     }
     None

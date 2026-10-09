@@ -18,6 +18,10 @@ if [[ -e "$KEY" ]]; then
   exit 1
 fi
 command -v gh >/dev/null || { echo "❌ needs gh (https://cli.github.com)" >&2; exit 1; }
+if [[ -n "$(node -p 'require("./src-tauri/tauri.conf.json").plugins?.updater?.pubkey ?? ""')" ]]; then
+  echo "❌ $CONF already has an update key. Replacing it strands every installed copy (MoliSpec 007 §7.5.8)." >&2
+  exit 1
+fi
 
 read -rsp "Password for the new key: " PASSWORD; echo
 read -rsp "Again: " AGAIN; echo

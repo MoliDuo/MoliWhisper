@@ -66,7 +66,7 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let data_dir = app.path().app_data_dir()?;
             log::info!(
-                "MoliWhisper {} started, data dir {data_dir:?}",
+                "Moli Whisper {} started, data dir {data_dir:?}",
                 app.package_info().version
             );
             app.manage(settings::Settings::load(&data_dir));

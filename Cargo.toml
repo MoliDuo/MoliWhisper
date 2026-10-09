@@ -3,7 +3,9 @@ resolver = "3"
 members = ["crates/moli-core", "src-tauri"]
 
 [workspace.package]
-version = "2.0.0"
+# Not the app version: that is `version` in /package.json (the one source, MoliSpec 006 §6.2.2),
+# which src-tauri/tauri.conf.json points at. These crates are never published.
+version = "0.0.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/MoliDuo/MoliWhisper"
